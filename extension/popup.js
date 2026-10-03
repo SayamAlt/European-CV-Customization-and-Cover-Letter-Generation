@@ -1,8 +1,16 @@
 // =====================================================================
-// CONFIGURATION — update after HF Spaces deployment
+// CONFIGURATION — backend URL and API key are set via the options page
+// (chrome.storage.local), never hardcoded here.
 // =====================================================================
-const HF_SPACE_URL = "https://sayam2801-german-cv-optimizer.hf.space";
-const API_KEY = "***REMOVED-LEAKED-KEY***";
+let BACKEND_URL = null;
+let API_KEY = null;
+
+async function loadConfig() {
+  const res = await chrome.storage.local.get(['apiKey', 'backendUrl']);
+  BACKEND_URL = res.backendUrl || null;
+  API_KEY = res.apiKey || null;
+  return Boolean(BACKEND_URL && API_KEY);
+}
 
 // =====================================================================
 // DOM references
@@ -28,17 +36,27 @@ let pendingFilename  = null;
 let pendingMimeType  = null;
 
 // =====================================================================
-// Backend health check (dim the dot if unreachable)
+// Backend health check (dim the dot if unreachable or unconfigured)
 // =====================================================================
-fetch(`${HF_SPACE_URL}/health`, { signal: AbortSignal.timeout(4000) })
-  .then(r => {
-    if (!r.ok) throw new Error();
-  })
-  .catch(() => {
-    statusDot.style.background = '#f59e0b';
-    statusDot.style.boxShadow = '0 0 6px #f59e0b';
-    statusDot.title = 'Backend unreachable — check HF Space';
-  });
+loadConfig().then((configured) => {
+  if (!configured) {
+    statusDot.style.background = '#dc2626';
+    statusDot.style.boxShadow = '0 0 6px #dc2626';
+    statusDot.title = 'Not configured — click to open setup';
+    statusDot.style.cursor = 'pointer';
+    statusDot.addEventListener('click', () => chrome.runtime.openOptionsPage());
+    return;
+  }
+  fetch(`${BACKEND_URL}/health`, { signal: AbortSignal.timeout(4000) })
+    .then(r => {
+      if (!r.ok) throw new Error();
+    })
+    .catch(() => {
+      statusDot.style.background = '#f59e0b';
+      statusDot.style.boxShadow = '0 0 6px #f59e0b';
+      statusDot.title = 'Backend unreachable';
+    });
+});
 
 // =====================================================================
 // Step definitions per mode
@@ -211,7 +229,8 @@ async function extractJDText() {
 // Backend call
 // =====================================================================
 async function callBackend(endpoint, jdText) {
-  const res = await fetch(`${HF_SPACE_URL}${endpoint}`, {
+  if (!BACKEND_URL || !API_KEY) throw new Error('Not configured — open extension options and set your backend URL and API key.');
+  const res = await fetch(`${BACKEND_URL}${endpoint}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -228,7 +247,8 @@ async function callBackend(endpoint, jdText) {
 
 // /cover_letter now returns a raw PDF file, not JSON — fetch it as a blob.
 async function callBackendPDF(endpoint, jdText) {
-  const res = await fetch(`${HF_SPACE_URL}${endpoint}`, {
+  if (!BACKEND_URL || !API_KEY) throw new Error('Not configured — open extension options and set your backend URL and API key.');
+  const res = await fetch(`${BACKEND_URL}${endpoint}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

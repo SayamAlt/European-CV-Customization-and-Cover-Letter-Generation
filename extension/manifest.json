@@ -3,12 +3,14 @@
   "name": "German CV Customizer",
   "version": "2.0",
   "description": "Optimize your German CV and generate tailored Cover Letters powered by AI.",
-  "permissions": ["activeTab", "scripting"],
+  "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": [
-    "https://*.hf.space/*"
+    "https://*.hf.space/*",
+    "https://*.onrender.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "German CV Customizer"
-  }
+  },
+  "options_page": "options.html"
 }
