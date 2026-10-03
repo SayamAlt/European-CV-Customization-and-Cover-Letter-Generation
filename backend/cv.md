@@ -87,16 +87,16 @@ Hindi — Native
 
 ## CERTIFICATIONS
 
-- Google Data Analytics Professional Certificate
-- IBM Data Analyst Professional Certificate
-- IBM Data Science Professional Certificate
-- Statistics with Python Specialization: Michigan University
-- IBM Applied Data Science Specialization
+- Google Data Analytics Professional Certificate — Google
+- IBM Data Analyst Professional Certificate — IBM
+- IBM Data Science Professional Certificate — IBM
+- Statistics with Python Specialization — University of Michigan
+- IBM Applied Data Science Specialization — IBM
 
 ---
 
 ## PUBLICATIONS
 
 **Fake Reviews Filtering System using Supervised Machine Learning**  
-2022 IEEE International Conference on Data Science and Information System (ICDSIS)  
+IEEE ICDSIS 2022 (2022)  
 Link: https://ieeexplore.ieee.org/document/9915878

@@ -101,8 +101,12 @@ async def optimize_cv(request: JDRequest, _: str = Security(verify_key)):
         raise HTTPException(status_code=500, detail=f"{CV_FILENAME} not found. Upload it to the Storage Bucket at /data/.")
     with open(cv_path, "r", encoding="utf-8") as f:
         base_cv = f.read()
-    result = process_cv(jd, base_cv)
-    return {"status": "success", "cv_content": result}
+    pdf_bytes = process_cv(jd, base_cv)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=Sayam-Kumar-CV-German-Optimized.pdf"}
+    )
 
 @fastapi_app.post("/cover_letter")
 async def generate_cover_letter(request: JDRequest, _: str = Security(verify_key)):

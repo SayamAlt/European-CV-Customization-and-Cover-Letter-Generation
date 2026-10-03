@@ -226,26 +226,9 @@ async function extractJDText() {
 }
 
 // =====================================================================
-// Backend call
+// Backend call — both /optimize and /cover_letter return a raw PDF
+// file, never JSON — always fetch as a blob.
 // =====================================================================
-async function callBackend(endpoint, jdText) {
-  if (!BACKEND_URL || !API_KEY) throw new Error('Not configured — open extension options and set your backend URL and API key.');
-  const res = await fetch(`${BACKEND_URL}${endpoint}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-API-Key': API_KEY
-    },
-    body: JSON.stringify({ jd_text: jdText })
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Server returned ${res.status}`);
-  }
-  return res.json();
-}
-
-// /cover_letter now returns a raw PDF file, not JSON — fetch it as a blob.
 async function callBackendPDF(endpoint, jdText) {
   if (!BACKEND_URL || !API_KEY) throw new Error('Not configured — open extension options and set your backend URL and API key.');
   const res = await fetch(`${BACKEND_URL}${endpoint}`, {
@@ -272,13 +255,8 @@ cvCard.addEventListener('click', async () => {
 
   try {
     const jdText = await extractJDText();
-    const data   = await callBackend('/optimize', jdText);
-
-    if (data.status === 'success' && data.cv_content) {
-      showResult('cv', data.cv_content, 'Sayam-Kumar-CV-German-Optimized.md', 'text/markdown');
-    } else {
-      showError(data.detail || 'Unexpected response from backend.');
-    }
+    const blob   = await callBackendPDF('/optimize', jdText);
+    showResult('cv', blob, 'Sayam-Kumar-CV-German-Optimized.pdf', 'application/pdf');
   } catch (err) {
     showError(err.message || 'Something went wrong. Check the backend is running.');
   }

@@ -50,8 +50,12 @@ async def optimize_cv(request: JDRequest, _: str = Security(verify_key)):
     with open(BASE_CV_PATH, "r", encoding="utf-8") as f:
         base_cv = f.read()
 
-    result = process_cv(jd, base_cv)
-    return {"status": "success", "cv_content": result}
+    pdf_bytes = process_cv(jd, base_cv)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=Sayam-Kumar-CV-German-Optimized.pdf"}
+    )
 
 @app.post("/cover_letter")
 async def generate_cover_letter(request: JDRequest, _: str = Security(verify_key)):

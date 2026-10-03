@@ -62,7 +62,7 @@
     font-family: 'Space Grotesk', sans-serif;
     font-size: 26px;
     font-weight: 700;
-    color: #1a1a2e;
+    color: #15808e;
     letter-spacing: -0.02em;
     margin-bottom: 6px;
     line-height: 1.1;
@@ -70,7 +70,7 @@
 
   .header-gradient {
     height: 2px;
-    background: linear-gradient(to right, hsl(187, 74%, 32%), hsl(270, 70%, 45%));
+    background: #15808e;
     border-radius: 1px;
     margin-bottom: 10px;
   }
@@ -94,11 +94,33 @@
     line-height: 1.6;
   }
 
-  .salutation {
+  .recipient-block {
+    margin-bottom: 10px;
+  }
+
+  .recipient-block .company {
+    font-size: 12px;
+    font-weight: 700;
+    color: #15808e;
+    margin-bottom: 2px;
+  }
+
+  .recipient-block .role-line {
+    font-size: 10.5px;
+    color: #555;
+  }
+
+  .re-line {
     font-size: 11.5px;
-    font-weight: 600;
+    font-weight: 700;
     color: #1a1a2e;
-    margin-bottom: 14px;
+    margin-bottom: 8px;
+  }
+
+  .re-rule {
+    height: 1px;
+    background: #ddd;
+    margin-bottom: 18px;
   }
 
   .body-text p {
@@ -128,7 +150,7 @@
     margin-top: 6px;
   }
 
-  a { white-space: nowrap; color: hsl(187, 74%, 32%); }
+  a { white-space: nowrap; color: #15808e; }
 
   @media print {
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -144,7 +166,7 @@
     <h1>Sayam Kumar</h1>
     <div class="header-gradient"></div>
     <div class="contact-row">
-      <span>(437) 876-4544</span>
+      <span>+91 9810734544</span>
       <span class="separator">|</span>
       <span>sayamk565@gmail.com</span>
       <span class="separator">|</span>
@@ -152,21 +174,20 @@
       <span class="separator">|</span>
       <a href="https://sayamalt.github.io/My-Portfolio-Website/">sayamalt.github.io/My-Portfolio-Website</a>
       <span class="separator">|</span>
-      <span>Toronto, ON, Canada</span>
+      <span>Delhi, India</span>
     </div>
   </div>
 
-  <!-- DATE + ADDRESSEE -->
-  <div class="letter-meta">
-    May 12, 2026<br><br>
-    Hiring Manager<br>
-    Industry Futures Team<br>
-    Autodesk<br>
-    Toronto, ON, Canada
-  </div>
+  <!-- DATE -->
+  <div class="letter-meta">{{TODAY}}</div>
 
-  <!-- SALUTATION -->
-  <div class="salutation">Dear Hiring Manager,</div>
+  <!-- RECIPIENT / ROLE -->
+  <div class="recipient-block">
+    <div class="company">Autodesk</div>
+    <div class="role-line">Hiring Team &mdash; Associate Researcher, Design and Manufacturing (Req. #883)</div>
+  </div>
+  <div class="re-line">Re: Associate Researcher, Design and Manufacturing &mdash; Industry Futures Team</div>
+  <div class="re-rule"></div>
 
   <!-- BODY -->
   <div class="body-text">
