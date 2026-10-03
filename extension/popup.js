@@ -169,7 +169,7 @@ function showResult(mode, content, filename, mimeType) {
       resultTitle.textContent = 'CV Optimized Successfully!';
       resultSubtitle.textContent = 'ATS-ready · XYZ format · Keywords injected';
       downloadBtn.className = 'download-btn download-btn-cv';
-      downloadLabel.textContent = 'Download Optimized CV (.md)';
+      downloadLabel.textContent = 'Download Optimized CV (.pdf)';
     } else {
       resultTitle.textContent = 'Cover Letter Ready!';
       resultSubtitle.textContent = 'Human-written tone · No em/en dashes · Job-tailored';
