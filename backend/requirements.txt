@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+langchain
+langgraph
+langchain-openai
+openai
+pydantic
+python-dotenv
+xhtml2pdf
+spaces
