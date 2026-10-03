@@ -68,11 +68,15 @@ def generate_cover_letter(request: JDRequest, _: str = Security(verify_key)):
         raise HTTPException(status_code=400, detail="Job Description too short.")
     if not os.path.exists(BASE_CL_PATH):
         raise HTTPException(status_code=500, detail="Cover letter template not found in container.")
+    if not os.path.exists(BASE_CV_PATH):
+        raise HTTPException(status_code=500, detail="cv.md not found in container.")
 
     with open(BASE_CL_PATH, "r", encoding="utf-8") as f:
         base_cl = f.read()
+    with open(BASE_CV_PATH, "r", encoding="utf-8") as f:
+        base_cv = f.read()
 
-    result = process_cover_letter(jd, base_cl)
+    result = process_cover_letter(jd, base_cl, base_cv)
     pdf_bytes = html_to_pdf_bytes(result)
     return Response(
         content=pdf_bytes,

@@ -259,6 +259,26 @@ def _strip_code_fences(text: str) -> str:
     """Defensively remove any ``` fences the model wraps around HTML output."""
     return _CODE_FENCE_RE.sub("", text.strip()).strip()
 
+def _candidate_facts(base_cv_md: str) -> str:
+    """Builds the single authoritative fact sheet the cover letter LLM is
+    allowed to draw on. The reference letter alone is not a safe source of
+    truth (it's prose from one past, unrelated application and can drift),
+    so languages/education/certs/publications/experience are pulled fresh
+    from cv.md every time — the same source of truth the CV uses."""
+    data = parse_base_cv(base_cv_md)
+    lines = [f"Languages: " + "; ".join(f"{name} ({level})" for name, level in data["languages"])]
+    lines.append("Education: " + "; ".join(f"{e['degree']} at {e['institution']}" for e in data["education"]))
+    if data["certificates"]:
+        lines.append("Certifications: " + "; ".join(c[0] for c in data["certificates"]))
+    if data["publications"]:
+        lines.append("Publications: " + "; ".join(p["title"] for p in data["publications"]))
+    lines.append("Work experience (company, role, bullets):")
+    for job in data["experience"]:
+        lines.append(f"- {job['role']} at {job['company']}:")
+        for b in job["bullets"]:
+            lines.append(f"  - {b}")
+    return "\n".join(lines)
+
 def write_cover_letter(state: AgentState):
     """Generates a tailored, human-sounding cover letter based on JD."""
     # Static instructions + the reference letter (identical every request,
@@ -270,7 +290,10 @@ def write_cover_letter(state: AgentState):
         "motivated candidate and not by an AI.\n\n"
         "Your task:\n"
         "1. Tailor the letter body completely to the job requirements given below.\n"
-        "2. Keep the letter short, clear, and direct. Max 4 short paragraphs.\n"
+        "2. Write 5 to 6 well-developed paragraphs (not 2 to 3 short ones). Each paragraph "
+        "should be 3 to 5 full sentences. The letter must read as substantial and complete, "
+        "filling close to a full page when rendered, while still fitting on exactly ONE page "
+        "- never let it run short and sparse, and never let it overflow past one page.\n"
         "3. Mirror the reference letter's HTML structure and CSS styling EXACTLY: same "
         "divs/classes, same order of sections (header, date, recipient-block with company "
         "and role-line, re-line, re-rule, body paragraphs, closing). There is NO "
@@ -290,9 +313,19 @@ def write_cover_letter(state: AgentState):
         "   - NEVER use em dashes or en dashes. Replace with a comma or rewrite the sentence.\n"
         "   - Use simple, everyday language only. No complex or overly formal words.\n"
         "   - Write like a real person who genuinely wants this specific job.\n"
-        "   - Be concrete: mention 1 or 2 real achievements from the reference that map to this role.\n"
+        "   - Be concrete: reference multiple real achievements from the candidate facts below "
+        "that map to this role, with specifics (numbers, tools, outcomes).\n"
         "   - Avoid filler phrases like 'I am excited to apply' or 'I believe I would be a great fit'.\n"
-        "8. Do NOT fabricate experiences. Only use facts already present in the reference letter.\n"
+        "8. ZERO-HALLUCINATION RULE, highest priority, overrides every other instruction: "
+        "the ONLY facts about the candidate you may state (companies, roles, metrics, degrees, "
+        "certifications, publications, and critically LANGUAGES) are the ones listed verbatim "
+        "in 'Verified candidate facts' below. Do NOT infer, assume, or add anything not listed "
+        "there, even if it seems plausible or the JD is in German. In particular, the candidate's "
+        "languages are EXACTLY as listed in 'Verified candidate facts' - do NOT claim fluency, "
+        "proficiency, or any skill in German (or any other language) unless German literally "
+        "appears in that list. The reference letter is for TONE, STRUCTURE, and CSS only, not "
+        "for fact-checking - if it contains any fact not present in 'Verified candidate facts' "
+        "(it may, since it's from a different past application), do not reuse that fact.\n"
         "9. The company name, role title, and requisition number MUST be read from the full "
         "original job description below, not from the reference letter. The reference letter's "
         "company (e.g. Autodesk) is from a DIFFERENT, unrelated past application — reusing it "
@@ -300,7 +333,9 @@ def write_cover_letter(state: AgentState):
         "10. Output ONLY the complete finalized HTML cover letter — no markdown code "
         "fences (no ``` anywhere), no commentary before or after the HTML.\n\n"
         "Here is the reference cover letter (use this for structure, CSS, and contact "
-        "details — real experience only):\n{base_cl}\n\n"
+        "details ONLY, never for facts):\n{base_cl}\n\n"
+        "Verified candidate facts (the ONLY facts you may state about the candidate):\n"
+        "{candidate_facts}\n\n"
         "Here are the core requirements of the job:\n{requirements}\n\n"
         "Here is the full original job description, to read the exact company name, role "
         "title, and requisition number (if any) from:\n{jd_text}"
@@ -309,7 +344,8 @@ def write_cover_letter(state: AgentState):
     res = chain.invoke({
         "requirements": state["extracted_requirements"],
         "base_cl": state["base_cl"],
-        "jd_text": state["jd_text"]
+        "jd_text": state["jd_text"],
+        "candidate_facts": _candidate_facts(state["base_cv"])
     })
     # Leave {{TODAY}} as a literal placeholder here — the result gets
     # cached below, and substituting a real date into a cached response
@@ -355,13 +391,13 @@ def process_cv(jd_text: str, base_cv: str) -> bytes:
     return _process_cv_cached(jd_text, base_cv)
 
 @lru_cache(maxsize=64)
-def _process_cl_cached(jd_text: str, base_cl: str) -> str:
+def _process_cl_cached(jd_text: str, base_cl: str, base_cv: str) -> str:
     """Same caching as the CV pipeline. Returns HTML with the {{TODAY}}
     placeholder still literal — date substitution happens after the cache
     lookup so cached results never carry a stale date."""
     result = _cl_app.invoke({
         "jd_text": jd_text,
-        "base_cv": None,
+        "base_cv": base_cv,
         "base_cl": base_cl,
         "extracted_requirements": "",
         "optimized_cv": None,
@@ -369,8 +405,8 @@ def _process_cl_cached(jd_text: str, base_cl: str) -> str:
     })
     return result["optimized_cl"]
 
-def process_cover_letter(jd_text: str, base_cl: str) -> str:
-    html = _process_cl_cached(jd_text, base_cl)
+def process_cover_letter(jd_text: str, base_cl: str, base_cv: str) -> str:
+    html = _process_cl_cached(jd_text, base_cl, base_cv)
     today = datetime.now().strftime("%B %d, %Y")
     # Match {{TODAY}} as instructed, but also tolerate a stray single-brace
     # {TODAY} the model sometimes writes instead — a literal placeholder of
