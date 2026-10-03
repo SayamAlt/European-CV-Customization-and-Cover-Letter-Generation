@@ -2,6 +2,7 @@ import os
 import re
 import html as html_lib
 from datetime import datetime
+from functools import lru_cache
 from io import BytesIO
 from pypdf import PdfReader
 from typing import TypedDict, Optional
@@ -14,7 +15,14 @@ from xhtml2pdf import pisa
 
 load_dotenv()
 
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+# timeout + bounded retries: don't hang a request forever on a flaky
+# upstream call, but tolerate one transient network blip.
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, timeout=30, max_retries=2)
+
+# Requirement extraction only needs a short keyword/skill list, not prose.
+# Capping output tokens cuts cost and latency with no loss of the signal
+# the downstream tailoring step actually uses.
+extract_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, timeout=30, max_retries=2, max_tokens=300)
 
 def html_to_pdf_bytes(html: str) -> bytes:
     """Render generated HTML into PDF bytes.
@@ -158,16 +166,25 @@ class AgentState(TypedDict):
     optimized_cv: Optional[bytes]
     optimized_cl: Optional[str]
 
+_EXTRACT_PROMPT = PromptTemplate.from_template(
+    "Analyze the following German job description carefully. "
+    "Extract the core technical skills, soft skills, key responsibilities, "
+    "and any important keywords that an applicant must demonstrate. "
+    "Respond ONLY as a compact bullet list, no preamble, no commentary, "
+    "under 150 words.\n\nJD:\n{jd_text}"
+)
+_extract_chain = _EXTRACT_PROMPT | extract_llm
+
+@lru_cache(maxsize=256)
+def _extract_requirements_cached(jd_text: str) -> str:
+    """Same JD text always yields the same requirements (temperature=0),
+    so a repeat JD — from a retry, or a user hitting both /optimize and
+    /cover_letter for one posting — skips this LLM call entirely."""
+    return _extract_chain.invoke({"jd_text": jd_text}).content
+
 def extract_requirements(state: AgentState):
     """Analyzes JD and extracts core requirements."""
-    prompt = PromptTemplate.from_template(
-        "Analyze the following German job description carefully. "
-        "Extract the core technical skills, soft skills, key responsibilities, "
-        "and any important keywords that an applicant must demonstrate.\n\nJD:\n{jd_text}"
-    )
-    chain = prompt | llm
-    res = chain.invoke({"jd_text": state["jd_text"]})
-    return {"extracted_requirements": res.content}
+    return {"extracted_requirements": _extract_requirements_cached(state["jd_text"])}
 
 def _tailor_and_render_cv(requirements: str, base_cv_md: str) -> bytes:
     data = parse_base_cv(base_cv_md)
@@ -178,11 +195,14 @@ def _tailor_and_render_cv(requirements: str, base_cv_md: str) -> bytes:
         for i, job in enumerate(data["experience"])
     )
 
+    # Static instructions and the candidate's (per-deployment-constant)
+    # profile/experience come first, JD-derived requirements last. OpenAI
+    # caches a matching prompt prefix automatically — since this entire
+    # prefix is identical on every single request (same base_cv), every
+    # call after the first pays full price only for the short dynamic
+    # tail, cutting input cost and latency on the bulk of the prompt.
     prompt = PromptTemplate.from_template(
-        "You are an expert career coach tailoring a German CV to a specific job description.\n"
-        "Here are the core requirements of the job:\n{requirements}\n\n"
-        "Here is the candidate's current profile summary:\n{summary}\n\n"
-        "Here are the candidate's work experience entries with their original bullet points:\n{jobs_summary}\n\n"
+        "You are an expert career coach tailoring a German CV to a specific job description.\n\n"
         "Your task:\n"
         "1. Rewrite the profile summary to emphasize fit for this specific role.\n"
         "2. Rewrite each job's bullet points, keeping the EXACT SAME NUMBER of bullets per job, "
@@ -191,7 +211,10 @@ def _tailor_and_render_cv(requirements: str, base_cv_md: str) -> bytes:
         "4. CRITICAL CONSTRAINT: Do NOT fabricate or invent any skills, metrics, or experiences "
         "not present in the original bullets. Only reorder, reframe, and emphasize what already exists. "
         "If the candidate lacks a skill, do NOT add it.\n"
-        "5. Do NOT change job titles, company names, dates, or locations — only profile text and bullet wording."
+        "5. Do NOT change job titles, company names, dates, or locations — only profile text and bullet wording.\n\n"
+        "Here is the candidate's current profile summary:\n{summary}\n\n"
+        "Here are the candidate's work experience entries with their original bullet points:\n{jobs_summary}\n\n"
+        "Here are the core requirements of the job:\n{requirements}"
     )
     chain = prompt | tailor_llm
     tailored: TailoredCV = chain.invoke({
@@ -220,15 +243,15 @@ def _strip_code_fences(text: str) -> str:
 
 def write_cover_letter(state: AgentState):
     """Generates a tailored, human-sounding cover letter based on JD."""
+    # Static instructions + the reference letter (identical every request,
+    # same template file) first, JD-derived requirements last — same
+    # prefix-caching rationale as the CV tailoring prompt above.
     prompt = PromptTemplate.from_template(
         "You are writing a highly targeted cover letter for a German job posting. "
         "Your goal is to produce a letter that feels genuinely written by a thoughtful, "
         "motivated candidate and not by an AI.\n\n"
-        "Here are the core requirements of the job:\n{requirements}\n\n"
-        "Here is the reference cover letter (use this for structure, CSS, and contact "
-        "details — real experience only):\n{base_cl}\n\n"
         "Your task:\n"
-        "1. Tailor the letter body completely to the job requirements above.\n"
+        "1. Tailor the letter body completely to the job requirements given below.\n"
         "2. Keep the letter short, clear, and direct. Max 4 short paragraphs.\n"
         "3. Mirror the reference letter's HTML structure and CSS styling EXACTLY: same "
         "divs/classes, same order of sections (header, date, recipient-block with company "
@@ -253,27 +276,47 @@ def write_cover_letter(state: AgentState):
         "   - Avoid filler phrases like 'I am excited to apply' or 'I believe I would be a great fit'.\n"
         "8. Do NOT fabricate experiences. Only use facts already present in the reference letter.\n"
         "9. Output ONLY the complete finalized HTML cover letter — no markdown code "
-        "fences (no ``` anywhere), no commentary before or after the HTML."
+        "fences (no ``` anywhere), no commentary before or after the HTML.\n\n"
+        "Here is the reference cover letter (use this for structure, CSS, and contact "
+        "details — real experience only):\n{base_cl}\n\n"
+        "Here are the core requirements of the job:\n{requirements}"
     )
     chain = prompt | llm
     res = chain.invoke({
         "requirements": state["extracted_requirements"],
         "base_cl": state["base_cl"]
     })
-    html = _strip_code_fences(res.content)
-    today = datetime.now().strftime("%B %d, %Y")
-    html = re.sub(r"\{\{\s*TODAY\s*\}\}", today, html, flags=re.IGNORECASE)
-    return {"optimized_cl": html}
+    # Leave {{TODAY}} as a literal placeholder here — the result gets
+    # cached below, and substituting a real date into a cached response
+    # would freeze that date for every future cache hit. The date is
+    # filled in fresh on every call, cached or not, in process_cover_letter.
+    return {"optimized_cl": _strip_code_fences(res.content)}
 
-def process_cv(jd_text: str, base_cv: str) -> bytes:
-    workflow = StateGraph(AgentState)
-    workflow.add_node("extract", extract_requirements)
-    workflow.add_node("reframe", reframe_cv)
-    workflow.set_entry_point("extract")
-    workflow.add_edge("extract", "reframe")
-    workflow.add_edge("reframe", END)
-    app = workflow.compile()
-    result = app.invoke({
+# Graphs are pure wiring with no per-request state — compiling them on
+# every call (as before) is wasted work. Build each one once at import
+# time and reuse it for every request.
+_cv_workflow = StateGraph(AgentState)
+_cv_workflow.add_node("extract", extract_requirements)
+_cv_workflow.add_node("reframe", reframe_cv)
+_cv_workflow.set_entry_point("extract")
+_cv_workflow.add_edge("extract", "reframe")
+_cv_workflow.add_edge("reframe", END)
+_cv_app = _cv_workflow.compile()
+
+_cl_workflow = StateGraph(AgentState)
+_cl_workflow.add_node("extract", extract_requirements)
+_cl_workflow.add_node("write_cl", write_cover_letter)
+_cl_workflow.set_entry_point("extract")
+_cl_workflow.add_edge("extract", "write_cl")
+_cl_workflow.add_edge("write_cl", END)
+_cl_app = _cl_workflow.compile()
+
+@lru_cache(maxsize=64)
+def _process_cv_cached(jd_text: str, base_cv: str) -> bytes:
+    """Full CV pipeline is deterministic (temperature=0) for a given JD +
+    base CV, both LLM calls included. A repeat JD — a retry, or the same
+    posting run again later — returns instantly with zero LLM calls."""
+    result = _cv_app.invoke({
         "jd_text": jd_text,
         "base_cv": base_cv,
         "base_cl": None,
@@ -283,15 +326,15 @@ def process_cv(jd_text: str, base_cv: str) -> bytes:
     })
     return result["optimized_cv"]
 
-def process_cover_letter(jd_text: str, base_cl: str) -> str:
-    workflow = StateGraph(AgentState)
-    workflow.add_node("extract", extract_requirements)
-    workflow.add_node("write_cl", write_cover_letter)
-    workflow.set_entry_point("extract")
-    workflow.add_edge("extract", "write_cl")
-    workflow.add_edge("write_cl", END)
-    app = workflow.compile()
-    result = app.invoke({
+def process_cv(jd_text: str, base_cv: str) -> bytes:
+    return _process_cv_cached(jd_text, base_cv)
+
+@lru_cache(maxsize=64)
+def _process_cl_cached(jd_text: str, base_cl: str) -> str:
+    """Same caching as the CV pipeline. Returns HTML with the {{TODAY}}
+    placeholder still literal — date substitution happens after the cache
+    lookup so cached results never carry a stale date."""
+    result = _cl_app.invoke({
         "jd_text": jd_text,
         "base_cv": None,
         "base_cl": base_cl,
@@ -300,6 +343,11 @@ def process_cover_letter(jd_text: str, base_cl: str) -> str:
         "optimized_cl": ""
     })
     return result["optimized_cl"]
+
+def process_cover_letter(jd_text: str, base_cl: str) -> str:
+    html = _process_cl_cached(jd_text, base_cl)
+    today = datetime.now().strftime("%B %d, %Y")
+    return re.sub(r"\{\{\s*TODAY\s*\}\}", today, html, flags=re.IGNORECASE)
 
 # =====================================================================
 # Fixed CV PDF template — mirrors cv-sayam-kumar-german.pdf's exact

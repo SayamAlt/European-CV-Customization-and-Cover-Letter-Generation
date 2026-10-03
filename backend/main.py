@@ -39,8 +39,12 @@ class JDRequest(BaseModel):
 def health():
     return {"status": "ok"}
 
+# Plain `def`, not `async def`: process_cv/process_cover_letter block on
+# network calls to the LLM. FastAPI runs sync route functions in its
+# threadpool, so one slow request no longer stalls the whole event loop
+# and other requests keep being served concurrently.
 @app.post("/optimize")
-async def optimize_cv(request: JDRequest, _: str = Security(verify_key)):
+def optimize_cv(request: JDRequest, _: str = Security(verify_key)):
     jd = request.jd_text.strip()
     if len(jd) < 50:
         raise HTTPException(status_code=400, detail="Job Description too short.")
@@ -58,7 +62,7 @@ async def optimize_cv(request: JDRequest, _: str = Security(verify_key)):
     )
 
 @app.post("/cover_letter")
-async def generate_cover_letter(request: JDRequest, _: str = Security(verify_key)):
+def generate_cover_letter(request: JDRequest, _: str = Security(verify_key)):
     jd = request.jd_text.strip()
     if len(jd) < 50:
         raise HTTPException(status_code=400, detail="Job Description too short.")
