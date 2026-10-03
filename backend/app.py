@@ -116,9 +116,14 @@ async def generate_cover_letter(request: JDRequest, _: str = Security(verify_key
     cl_path = _resolve("cover_letter_template.html")
     if not os.path.exists(cl_path):
         raise HTTPException(status_code=500, detail="cover_letter_template.html not found. Upload it to the Storage Bucket at /data/.")
+    cv_path = _resolve(CV_FILENAME)
+    if not os.path.exists(cv_path):
+        raise HTTPException(status_code=500, detail=f"{CV_FILENAME} not found. Upload it to the Storage Bucket at /data/.")
     with open(cl_path, "r", encoding="utf-8") as f:
         base_cl = f.read()
-    result = process_cover_letter(jd, base_cl)
+    with open(cv_path, "r", encoding="utf-8") as f:
+        base_cv = f.read()
+    result = process_cover_letter(jd, base_cl, base_cv)
     pdf_bytes = html_to_pdf_bytes(result)
     return Response(
         content=pdf_bytes,
