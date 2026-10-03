@@ -1,20 +1,17 @@
 FROM python:3.11-slim
 
+# Force unbuffered stdout/stderr so logs display immediately on Render
+ENV PYTHONUNBUFFERED=1
+
 # Set working directory
 WORKDIR /app
 
-# Copy requirements and install
+# Copy requirements and install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source files
-COPY agent.py .
-COPY main.py .
-COPY cv.md .
-COPY cover_letter_template.html .
+# Copy all application files (app.py, agent.py, cv.md, cover_letter_template.html)
+COPY . .
 
-# HF Spaces exposes port 7860 by default
-EXPOSE 7860
-
-# Start server
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
+# Launch uvicorn bound to Render's dynamic $PORT (falls back to 7860 if PORT is unset)
+CMD ["sh", "-c", "exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-7860}"]
