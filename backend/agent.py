@@ -153,6 +153,7 @@ class TailoredExperience(BaseModel):
     bullets: list[str] = Field(description="Tailored bullet points for this role, same count as the original.")
 
 class TailoredCV(BaseModel):
+    title: str = Field(description="2-5 word professional headline that matches the exact job title/role stated in the JD (or the closest fitting title if the JD states none). Must change to fit each JD, never default to the candidate's original headline.")
     profile: str = Field(description="Tailored 2-3 sentence profile summary.")
     experience: list[TailoredExperience] = Field(description="One entry per job, same order as given, same bullet count per job as the original.")
 
@@ -186,7 +187,7 @@ def extract_requirements(state: AgentState):
     """Analyzes JD and extracts core requirements."""
     return {"extracted_requirements": _extract_requirements_cached(state["jd_text"])}
 
-def _tailor_and_render_cv(requirements: str, base_cv_md: str) -> bytes:
+def _tailor_and_render_cv(requirements: str, jd_text: str, base_cv_md: str) -> bytes:
     data = parse_base_cv(base_cv_md)
 
     jobs_summary = "\n\n".join(
@@ -204,25 +205,42 @@ def _tailor_and_render_cv(requirements: str, base_cv_md: str) -> bytes:
     prompt = PromptTemplate.from_template(
         "You are an expert career coach tailoring a German CV to a specific job description.\n\n"
         "Your task:\n"
-        "1. Rewrite the profile summary to emphasize fit for this specific role.\n"
-        "2. Rewrite each job's bullet points, keeping the EXACT SAME NUMBER of bullets per job, "
+        "1. Write a new 2-5 word professional headline (the line directly under the "
+        "candidate's name, e.g. 'Senior Data Scientist' or 'AI Engineer & MLOps Specialist'). "
+        "This headline MUST ALWAYS change to match the exact job title stated in the JD below. "
+        "If the JD states no explicit title, infer the closest fitting 2-5 word title from its "
+        "responsibilities. NEVER reuse the candidate's original headline verbatim unless it "
+        "happens to be an exact match for the JD's title — a generic or stale headline is a failure.\n"
+        "2. Rewrite the profile summary to emphasize fit for this specific role. It MUST read as "
+        "written specifically for this JD, not a generic summary — reference the role's actual "
+        "focus areas from the requirements below.\n"
+        "3. Rewrite each job's bullet points, keeping the EXACT SAME NUMBER of bullets per job, "
         "formatted using the XYZ framework: 'Accomplished [X] as measured by [Y], by doing [Z]'.\n"
-        "3. Inject relevant keywords from the JD naturally into the bullet points.\n"
-        "4. CRITICAL CONSTRAINT: Do NOT fabricate or invent any skills, metrics, or experiences "
+        "4. Inject relevant keywords from the JD naturally into the bullet points.\n"
+        "5. CRITICAL CONSTRAINT: Do NOT fabricate or invent any skills, metrics, or experiences "
         "not present in the original bullets. Only reorder, reframe, and emphasize what already exists. "
-        "If the candidate lacks a skill, do NOT add it.\n"
-        "5. Do NOT change job titles, company names, dates, or locations — only profile text and bullet wording.\n\n"
+        "If the candidate lacks a skill, do NOT add it. The new headline must stay within the "
+        "candidate's actual domain of expertise (as shown by the work experience below) — adapt "
+        "wording and emphasis to the JD, do not claim an unrelated profession.\n"
+        "6. Do NOT change company names, dates, locations, or the role titles inside each past "
+        "work experience entry — only the headline (item 1), profile text, and bullet wording "
+        "change.\n\n"
+        "Here is the candidate's current professional headline:\n{title}\n\n"
         "Here is the candidate's current profile summary:\n{summary}\n\n"
         "Here are the candidate's work experience entries with their original bullet points:\n{jobs_summary}\n\n"
-        "Here are the core requirements of the job:\n{requirements}"
+        "Here are the core requirements of the job:\n{requirements}\n\n"
+        "Here is the full original job description, to read the exact job title from:\n{jd_text}"
     )
     chain = prompt | tailor_llm
     tailored: TailoredCV = chain.invoke({
         "requirements": requirements,
+        "jd_text": jd_text,
+        "title": data["title"],
         "summary": data["summary"],
         "jobs_summary": jobs_summary,
     })
 
+    data["title"] = tailored.title
     data["summary"] = tailored.profile
     for i, job in enumerate(data["experience"]):
         if i < len(tailored.experience) and tailored.experience[i].bullets:
@@ -231,8 +249,8 @@ def _tailor_and_render_cv(requirements: str, base_cv_md: str) -> bytes:
     return render_cv_pdf(data)
 
 def reframe_cv(state: AgentState):
-    """Tailors profile + bullets to the JD and renders the final CV PDF."""
-    pdf_bytes = _tailor_and_render_cv(state["extracted_requirements"], state["base_cv"])
+    """Tailors headline + profile + bullets to the JD and renders the final CV PDF."""
+    pdf_bytes = _tailor_and_render_cv(state["extracted_requirements"], state["jd_text"], state["base_cv"])
     return {"optimized_cv": pdf_bytes}
 
 _CODE_FENCE_RE = re.compile(r"^```[a-zA-Z]*\s*\n|\n?```\s*$", re.MULTILINE)
