@@ -8,4 +8,5 @@ openai
 pydantic
 python-dotenv
 xhtml2pdf
+pypdf
 spaces

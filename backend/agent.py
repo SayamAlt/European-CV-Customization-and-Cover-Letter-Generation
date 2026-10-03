@@ -3,6 +3,7 @@ import re
 import html as html_lib
 from datetime import datetime
 from io import BytesIO
+from pypdf import PdfReader
 from typing import TypedDict, Optional
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
@@ -315,7 +316,13 @@ def _highlight_metrics(text: str) -> str:
 def _esc(text: str) -> str:
     return html_lib.escape(text or "")
 
-def render_cv_html(data: dict) -> str:
+def render_cv_html(data: dict, scale: float = 1.0) -> str:
+    def pt(base: float) -> str:
+        return f"{round(base * scale, 2)}pt"
+
+    def px(base: float) -> str:
+        return f"{round(base * scale, 2)}px"
+
     contact = data["contact"]
     contact_parts = []
     if contact.get("phone"):
@@ -374,28 +381,28 @@ def render_cv_html(data: dict) -> str:
         optional_sections += f'<div class="section-title">PUBLICATIONS</div><ul class="plain-list">{pubs_html}</ul>'
 
     return f"""<html><head><style>
-        @page {{ size: A4; margin: 10px 28px; }}
-        body {{ font-family: Helvetica, Arial, sans-serif; color: #1a1a1a; font-size: 9.5pt; }}
-        .name {{ font-size: 20pt; font-weight: bold; margin-bottom: 1px; }}
-        .title {{ font-size: 11pt; font-weight: bold; color: #444; margin-bottom: 2px; }}
-        .contact {{ font-size: 8pt; color: #555; margin-bottom: 5px; }}
+        @page {{ size: A4; margin: {px(10)} {px(28)}; }}
+        body {{ font-family: Helvetica, Arial, sans-serif; color: #1a1a1a; font-size: {pt(9.5)}; }}
+        .name {{ font-size: {pt(20)}; font-weight: bold; color: #1F4E79; margin-bottom: 1px; }}
+        .title {{ font-size: {pt(11)}; font-weight: bold; color: #444; margin-bottom: 2px; }}
+        .contact {{ font-size: {pt(8)}; color: #555; margin-bottom: {px(5)}; }}
         .section-title {{
-            font-size: 9.5pt; font-weight: bold; letter-spacing: 0.5px;
-            border-bottom: 1px solid #999; padding-bottom: 1px;
-            margin-top: 6px; margin-bottom: 3px;
+            font-size: {pt(9.5)}; font-weight: bold; letter-spacing: 0.5px; color: #1F4E79;
+            border-bottom: 1.5px solid #1F4E79; padding-bottom: 1px;
+            margin-top: {px(6)}; margin-bottom: {px(3)};
             -pdf-keep-with-next: true;
         }}
-        .summary {{ font-size: 9pt; line-height: 1.25; margin-bottom: 1px; }}
-        .entry-meta {{ font-size: 7.5pt; color: #777; margin-top: 3px; }}
-        .role {{ font-size: 9.5pt; font-weight: bold; margin-top: 0px; }}
-        .company {{ font-size: 9.5pt; font-weight: bold; color: #333; margin-bottom: 1px; }}
-        .institution {{ font-size: 9pt; color: #333; margin-bottom: 1px; }}
+        .summary {{ font-size: {pt(9)}; line-height: 1.25; margin-bottom: 1px; }}
+        .entry-meta {{ font-size: {pt(7.5)}; color: #777; margin-top: {px(3)}; }}
+        .role {{ font-size: {pt(9.5)}; font-weight: bold; margin-top: 0px; }}
+        .company {{ font-size: {pt(9.5)}; font-weight: bold; color: #333; margin-bottom: 1px; }}
+        .institution {{ font-size: {pt(9)}; color: #333; margin-bottom: 1px; }}
         ul.bullets {{ margin: 1px 0 1px 16px; padding: 0; }}
-        ul.bullets li {{ font-size: 8.5pt; line-height: 1.2; margin-bottom: 0px; }}
-        .skill-line {{ font-size: 8.5pt; line-height: 1.25; margin: 0px; }}
-        .lang-line {{ font-size: 8.5pt; margin: 0px; }}
+        ul.bullets li {{ font-size: {pt(8.5)}; line-height: 1.2; margin-bottom: 0px; }}
+        .skill-line {{ font-size: {pt(8.5)}; line-height: 1.25; margin: 0px; }}
+        .lang-line {{ font-size: {pt(8.5)}; margin: 0px; }}
         ul.plain-list {{ margin: 1px 0 1px 16px; padding: 0; }}
-        ul.plain-list li {{ font-size: 8.5pt; line-height: 1.2; margin-bottom: 0px; }}
+        ul.plain-list li {{ font-size: {pt(8.5)}; line-height: 1.2; margin-bottom: 0px; }}
     </style></head>
     <body>
         <div class="name">{_esc(data['name'])}</div>
@@ -417,5 +424,19 @@ def render_cv_html(data: dict) -> str:
         {optional_sections}
     </body></html>"""
 
+def _pdf_page_count(pdf_bytes: bytes) -> int:
+    return len(PdfReader(BytesIO(pdf_bytes)).pages)
+
 def render_cv_pdf(data: dict) -> bytes:
-    return html_to_pdf_bytes(render_cv_html(data))
+    """Render the CV, auto-shrinking fonts/spacing until it fits on one
+    page. The CV must always be exactly one page — tailored bullets can
+    run longer than the reference text, so a fixed font size alone
+    cannot guarantee this every time.
+    """
+    last_pdf_bytes = None
+    for scale in (1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65):
+        pdf_bytes = html_to_pdf_bytes(render_cv_html(data, scale=scale))
+        last_pdf_bytes = pdf_bytes
+        if _pdf_page_count(pdf_bytes) <= 1:
+            return pdf_bytes
+    return last_pdf_bytes

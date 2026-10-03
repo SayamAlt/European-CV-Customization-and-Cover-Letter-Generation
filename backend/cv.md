@@ -1,6 +1,6 @@
 # Sayam Kumar
 
-**Data Scientist & Machine Learning Engineer**
+**Data Scientist & AI Engineer**
 
 **Contact**
 - Email: sayamk565@gmail.com
