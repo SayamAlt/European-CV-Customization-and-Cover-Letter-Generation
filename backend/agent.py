@@ -293,16 +293,23 @@ def write_cover_letter(state: AgentState):
         "   - Be concrete: mention 1 or 2 real achievements from the reference that map to this role.\n"
         "   - Avoid filler phrases like 'I am excited to apply' or 'I believe I would be a great fit'.\n"
         "8. Do NOT fabricate experiences. Only use facts already present in the reference letter.\n"
-        "9. Output ONLY the complete finalized HTML cover letter — no markdown code "
+        "9. The company name, role title, and requisition number MUST be read from the full "
+        "original job description below, not from the reference letter. The reference letter's "
+        "company (e.g. Autodesk) is from a DIFFERENT, unrelated past application — reusing it "
+        "verbatim for this job is a failure unless the JD below genuinely names that same company.\n"
+        "10. Output ONLY the complete finalized HTML cover letter — no markdown code "
         "fences (no ``` anywhere), no commentary before or after the HTML.\n\n"
         "Here is the reference cover letter (use this for structure, CSS, and contact "
         "details — real experience only):\n{base_cl}\n\n"
-        "Here are the core requirements of the job:\n{requirements}"
+        "Here are the core requirements of the job:\n{requirements}\n\n"
+        "Here is the full original job description, to read the exact company name, role "
+        "title, and requisition number (if any) from:\n{jd_text}"
     )
     chain = prompt | llm
     res = chain.invoke({
         "requirements": state["extracted_requirements"],
-        "base_cl": state["base_cl"]
+        "base_cl": state["base_cl"],
+        "jd_text": state["jd_text"]
     })
     # Leave {{TODAY}} as a literal placeholder here — the result gets
     # cached below, and substituting a real date into a cached response
@@ -365,7 +372,10 @@ def _process_cl_cached(jd_text: str, base_cl: str) -> str:
 def process_cover_letter(jd_text: str, base_cl: str) -> str:
     html = _process_cl_cached(jd_text, base_cl)
     today = datetime.now().strftime("%B %d, %Y")
-    return re.sub(r"\{\{\s*TODAY\s*\}\}", today, html, flags=re.IGNORECASE)
+    # Match {{TODAY}} as instructed, but also tolerate a stray single-brace
+    # {TODAY} the model sometimes writes instead — a literal placeholder of
+    # either shape must never reach the rendered PDF.
+    return re.sub(r"\{{1,2}\s*TODAY\s*\}{1,2}", today, html, flags=re.IGNORECASE)
 
 # =====================================================================
 # Fixed CV PDF template — mirrors cv-sayam-kumar-german.pdf's exact
