@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sayam Kumar -- Cover Letter -- London AI Team</title>
+<style>
+  @font-face {
+    font-family: 'Space Grotesk';
+    src: url('../../templates/fonts/space-grotesk-latin.woff2') format('woff2');
+    font-weight: 300 700;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'DM Sans';
+    src: url('../../templates/fonts/dm-sans-latin.woff2') format('woff2');
+    font-weight: 100 1000;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @page {
+    margin: 0.45in;
+  }
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 11.5px;
+    line-height: 1.65;
+    color: #1a1a2e;
+    background: #ffffff;
+    padding: 0;
+    margin: 0;
+  }
+
+  .page {
+    width: 100%;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 2px 0;
+  }
+
+  /* Header matches CV design */
+  .header {
+    margin-bottom: 24px;
+  }
+
+  .header h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 26px;
+    font-weight: 700;
+    color: #15808e;
+    letter-spacing: -0.02em;
+    margin-bottom: 6px;
+    line-height: 1.1;
+  }
+
+  .header-gradient {
+    height: 2px;
+    background: #15808e;
+    border-radius: 1px;
+    margin-bottom: 10px;
+  }
+
+  .contact-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    font-size: 10.5px;
+    color: #555;
+  }
+
+  .contact-row a { color: #555; text-decoration: none; }
+  .contact-row .separator { color: #ccc; }
+
+  /* Letter body */
+  .letter-meta {
+    font-size: 10.5px;
+    color: #666;
+    margin-top: 16px;
+    margin-bottom: 20px;
+    line-height: 1.6;
+  }
+
+  .recipient-block {
+    margin-bottom: 10px;
+  }
+
+  .recipient-block .company {
+    font-size: 12px;
+    font-weight: 700;
+    color: #15808e;
+    margin-bottom: 2px;
+  }
+
+  .recipient-block .role-line {
+    font-size: 10.5px;
+    color: #555;
+  }
+
+  .re-line {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-bottom: 8px;
+  }
+
+  .re-rule {
+    height: 1px;
+    background: #ddd;
+    margin-bottom: 18px;
+  }
+
+  .body-text p {
+    font-size: 11.5px;
+    line-height: 1.7;
+    color: #2f2f2f;
+    margin-bottom: 14px;
+  }
+
+  .body-text strong {
+    font-weight: 600;
+    color: #1a1a2e;
+  }
+
+  .closing {
+    margin-top: 24px;
+    font-size: 11.5px;
+    color: #2f2f2f;
+    line-height: 1.8;
+  }
+
+  .closing .name {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-top: 6px;
+  }
+
+  a { white-space: nowrap; color: #15808e; }
+
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .page { padding: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="header">
+    <h1>Sayam Kumar</h1>
+    <div class="header-gradient"></div>
+    <div class="contact-row">
+      <span>+91 9810734544</span>
+      <span class="separator">|</span>
+      <span>sayamk565@gmail.com</span>
+      <span class="separator">|</span>
+      <a href="https://www.linkedin.com/in/sayam-kumar/">linkedin.com/in/sayam-kumar</a>
+      <span class="separator">|</span>
+      <a href="https://sayamalt.github.io/My-Portfolio-Website/">sayamalt.github.io/My-Portfolio-Website</a>
+      <span class="separator">|</span>
+      <span>Delhi, India</span>
+    </div>
+  </div>
+
+  <!-- DATE -->
+  <div class="letter-meta">{{TODAY}}</div>
+
+  <!-- RECIPIENT / ROLE -->
+  <div class="recipient-block">
+    <div class="company">[Company Name]</div>
+    <div class="role-line">Hiring Team &mdash; Data Scientist, London</div>
+  </div>
+  <div class="re-line">Re: Data Scientist</div>
+  <div class="re-rule"></div>
+
+  <!-- BODY -->
+  <div class="body-text">
+
+    <p>
+      I am applying for the Data Scientist role in London. Building ML pipelines on real production data, and turning sensor and operational signals into measurable business outcomes, is exactly where my experience lives, and this role is a direct extension of the work I have spent the last two years doing.
+    </p>
+
+    <p>
+      At <strong>ExactSpace Technologies</strong>, I built ML pipelines on real factory-floor data: a time-series forecasting model on boiler oxygen sensor telemetry that reduced fuel consumption by <strong>18%</strong>, a PyTorch vision classifier for real-time billet cobble detection on production-line imaging that reached <strong>92% accuracy</strong> and cut downtime by <strong>15%</strong>, and an anomaly detection system processing <strong>10,000+ operational logs</strong> that shifted equipment maintenance from reactive to proactive (F1-score +30%). These were not toy datasets, they were continuous sensor streams from running industrial systems, and the outputs went into production.
+    </p>
+
+    <p>
+      More recently, at Zenon, I reduced LLM token costs by 32% and response latency by 38% in a production AI assistant through prompt compression, semantic caching, and a RAG pipeline with structured output enforcement, the kind of practical, cost-aware engineering I would bring to a London-based data or AI team.
+    </p>
+
+    <p>
+      My postgraduate training in Business Insights &amp; Analytics at Humber College means I can communicate experimental findings clearly to engineers, product teams, and leadership, not just produce model outputs. I am open to relocating to the United Kingdom and require Skilled Worker visa sponsorship.
+    </p>
+
+    <p>
+      I would welcome the opportunity to discuss how my machine learning background fits this role. My portfolio and IEEE publication are at <a href="https://sayamalt.github.io/My-Portfolio-Website/">sayamalt.github.io/My-Portfolio-Website</a> and <a href="https://ieeexplore.ieee.org/document/9915878">ieeexplore.ieee.org/document/9915878</a>.
+    </p>
+
+  </div>
+
+  <!-- CLOSING -->
+  <div class="closing">
+    Sincerely,<br>
+    <span class="name">Sayam Kumar</span>
+  </div>
+
+</div>
+</body>
+</html>

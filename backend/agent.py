@@ -63,9 +63,20 @@ def canonical_country_slug(country: str) -> str:
 def cv_filename_for_country(country: str) -> str:
     """Pure name resolution, no filesystem I/O — callers check existence
     themselves against whichever directory (local or storage bucket)
-    they resolve files from."""
+    they resolve files from. Lives under templates/cv/."""
     slug = canonical_country_slug(country)
     return "cv.md" if slug == "germany" else f"cv_{slug}.md"
+
+def cl_filename_for_country(country: str) -> str:
+    """Same convention as cv_filename_for_country, for the cover letter
+    reference template. Lives under "templates/cover letter/". A country
+    with a cv_<slug>.md but no matching cover_letter_template_<slug>.html
+    yet is still fully functional — callers fall back to the shared
+    (Germany) template, since it's structure/CSS/tone reference only and
+    never a source of facts (see write_cover_letter's zero-hallucination
+    rule), so reusing it across countries is always safe."""
+    slug = canonical_country_slug(country)
+    return "cover_letter_template.html" if slug == "germany" else f"cover_letter_template_{slug}.html"
 
 def discover_countries(base_dir: str) -> list[dict]:
     """Scans base_dir for cv.md plus every cv_<slug>.md and returns the

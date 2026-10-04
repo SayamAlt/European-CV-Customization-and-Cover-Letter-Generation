@@ -10,7 +10,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy all application files (app.py, agent.py, cv.md, cover_letter_template.html)
+# Copy all application files (app.py, agent.py, templates/cv/*, templates/cover letter/*)
 COPY . .
 
 # Launch uvicorn bound to Render's dynamic $PORT (falls back to 7860 if PORT is unset)
