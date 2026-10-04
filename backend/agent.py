@@ -245,7 +245,7 @@ class AgentState(TypedDict):
     optimized_cl: Optional[str]
 
 _EXTRACT_PROMPT = PromptTemplate.from_template(
-    "Analyze the following German job description carefully. "
+    "Analyze the following job description carefully. "
     "Extract the core technical skills, soft skills, key responsibilities, "
     "and any important keywords that an applicant must demonstrate. "
     "Respond ONLY as a compact bullet list, no preamble, no commentary, "
@@ -263,6 +263,43 @@ def _extract_requirements_cached(jd_text: str) -> str:
 def extract_requirements(state: AgentState):
     """Analyzes JD and extracts core requirements."""
     return {"extracted_requirements": _extract_requirements_cached(state["jd_text"])}
+
+# =====================================================================
+# Company name extraction — lets API callers build a filename unique
+# per job posting (e.g. "Sayam-Kumar-CV-Google.pdf") instead of a
+# generic, collision-prone one. Cheap, capped-token, cached call, kept
+# separate from requirement extraction so the two can be reasoned
+# about and tested independently.
+# =====================================================================
+_COMPANY_PROMPT = PromptTemplate.from_template(
+    "Extract ONLY the hiring company's name from the job description below. "
+    "Respond with the company name alone — no punctuation, no explanation, "
+    "no 'Company:' prefix or quotes. If the job description does not clearly "
+    "state a company name, respond with exactly: Unknown.\n\nJD:\n{jd_text}"
+)
+_company_chain = _COMPANY_PROMPT | extract_llm
+
+@lru_cache(maxsize=256)
+def _extract_company_name_cached(jd_text: str) -> str:
+    """Cached on jd_text alone, so this is shared across every country
+    variant and across both /optimize and /cover_letter for the same
+    posting — at most one extra LLM call per unique JD, ever."""
+    return _company_chain.invoke({"jd_text": jd_text}).content.strip()
+
+def extract_company_name(jd_text: str) -> str:
+    return _extract_company_name_cached(jd_text)
+
+_FILENAME_UNSAFE_RE = re.compile(r"[^A-Za-z0-9]+")
+
+def sanitize_filename_segment(text: str, fallback: str = "Company") -> str:
+    """Turns an arbitrary extracted string into a safe filename segment.
+    Falls back to a generic placeholder for empty/unknown extractions
+    so a PDF never gets a blank or malformed filename."""
+    text = (text or "").strip()
+    if not text or text.lower() in ("unknown", "n/a", "na", "none", ""):
+        return fallback
+    cleaned = _FILENAME_UNSAFE_RE.sub("-", text).strip("-")
+    return cleaned or fallback
 
 def _tailor_and_render_cv(requirements: str, jd_text: str, base_cv_md: str) -> bytes:
     data = parse_base_cv(base_cv_md)

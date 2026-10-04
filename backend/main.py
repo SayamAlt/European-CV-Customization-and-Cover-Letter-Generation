@@ -10,9 +10,9 @@ from agent import (
     html_to_pdf_bytes,
     cv_filename_for_country,
     cl_filename_for_country,
-    canonical_country_slug,
-    country_display_name,
     discover_countries,
+    extract_company_name,
+    sanitize_filename_segment,
 )
 
 app = FastAPI()
@@ -24,6 +24,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Content-Disposition carries the LLM-derived filename (company name) —
+    # without exposing it, the extension's fetch() can see the PDF bytes
+    # but not the filename the backend chose for them.
+    expose_headers=["Content-Disposition"],
 )
 
 # Simple bearer-token auth to prevent public abuse
@@ -96,11 +100,11 @@ def optimize_cv(request: JDRequest, _: str = Security(verify_key)):
         base_cv = f.read()
 
     pdf_bytes = process_cv(jd, base_cv)
-    country_name = country_display_name(canonical_country_slug(request.country))
+    company = sanitize_filename_segment(extract_company_name(jd))
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=Sayam-Kumar-CV-{country_name.replace(' ', '-')}-Optimized.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=Sayam-Kumar-CV-{company}.pdf"}
     )
 
 @app.post("/cover_letter")
@@ -121,9 +125,9 @@ def generate_cover_letter(request: JDRequest, _: str = Security(verify_key)):
 
     result = process_cover_letter(jd, base_cl, base_cv)
     pdf_bytes = html_to_pdf_bytes(result)
-    country_name = country_display_name(canonical_country_slug(request.country))
+    company = sanitize_filename_segment(extract_company_name(jd))
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=Sayam-Kumar-Cover-Letter-{country_name.replace(' ', '-')}-Optimized.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=Sayam-Kumar-Cover-Letter-{company}.pdf"}
     )

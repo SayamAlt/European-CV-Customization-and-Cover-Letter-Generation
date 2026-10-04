@@ -90,11 +90,6 @@ function selectedCountry() {
   return countrySelect.value || 'germany';
 }
 
-function selectedCountryName() {
-  const opt = countrySelect.selectedOptions[0];
-  return (opt && opt.dataset.name) || 'Optimized';
-}
-
 // =====================================================================
 // Backend health check (dim the dot if unreachable or unconfigured)
 // =====================================================================
@@ -288,9 +283,19 @@ async function extractJDText() {
 
 // =====================================================================
 // Backend call — both /optimize and /cover_letter return a raw PDF
-// file, never JSON — always fetch as a blob.
+// file, never JSON — always fetch as a blob. The filename (built from
+// the company name the backend extracts from the job description) is
+// decided server-side and carried in Content-Disposition, so every
+// job posting downloads to a unique, correctly-named file instead of
+// a generic one the extension would have to guess at.
 // =====================================================================
-async function callBackendPDF(endpoint, jdText, country) {
+function filenameFromContentDisposition(res, fallback) {
+  const header = res.headers.get('Content-Disposition') || '';
+  const match = header.match(/filename=([^;]+)/i);
+  return match ? match[1].trim().replace(/^"|"$/g, '') : fallback;
+}
+
+async function callBackendPDF(endpoint, jdText, country, fallbackFilename) {
   if (!BACKEND_URL || !API_KEY) throw new Error('Not configured — open extension options and set your backend URL and API key.');
   const res = await fetch(`${BACKEND_URL}${endpoint}`, {
     method: 'POST',
@@ -304,7 +309,9 @@ async function callBackendPDF(endpoint, jdText, country) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || `Server returned ${res.status}`);
   }
-  return res.blob();
+  const filename = filenameFromContentDisposition(res, fallbackFilename);
+  const blob = await res.blob();
+  return { blob, filename };
 }
 
 // =====================================================================
@@ -317,9 +324,8 @@ cvCard.addEventListener('click', async () => {
   try {
     const jdText  = await extractJDText();
     const country = selectedCountry();
-    const blob    = await callBackendPDF('/optimize', jdText, country);
-    const name    = selectedCountryName().replace(/\s+/g, '-');
-    showResult('cv', blob, `Sayam-Kumar-CV-${name}-Optimized.pdf`, 'application/pdf');
+    const { blob, filename } = await callBackendPDF('/optimize', jdText, country, 'Sayam-Kumar-CV.pdf');
+    showResult('cv', blob, filename, 'application/pdf');
   } catch (err) {
     showError(err.message || 'Something went wrong. Check the backend is running.');
   }
@@ -335,9 +341,8 @@ clCard.addEventListener('click', async () => {
   try {
     const jdText  = await extractJDText();
     const country = selectedCountry();
-    const blob    = await callBackendPDF('/cover_letter', jdText, country);
-    const name    = selectedCountryName().replace(/\s+/g, '-');
-    showResult('cl', blob, `Sayam-Kumar-Cover-Letter-${name}-Optimized.pdf`, 'application/pdf');
+    const { blob, filename } = await callBackendPDF('/cover_letter', jdText, country, 'Sayam-Kumar-Cover-Letter.pdf');
+    showResult('cl', blob, filename, 'application/pdf');
   } catch (err) {
     showError(err.message || 'Something went wrong. Check the backend is running.');
   }
