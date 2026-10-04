@@ -1,1 +1,1 @@
-# German-CV-Customization-and-Cover-Letter-Generation
+# European-CV-Customization-and-Cover-Letter-Generation
