@@ -406,6 +406,52 @@
       background-clip: text;
       font-weight: 600;
     }
+
+    /* ---- COUNTRY SELECTOR ---- */
+    .country-picker {
+      margin-bottom: 16px;
+    }
+    .country-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      display: block;
+    }
+    .country-select-wrap {
+      position: relative;
+    }
+    .country-select-wrap::after {
+      content: '▾';
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-secondary);
+      pointer-events: none;
+      font-size: 11px;
+    }
+    #countrySelect {
+      width: 100%;
+      appearance: none;
+      -webkit-appearance: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 600;
+      padding: 10px 32px 10px 12px;
+      cursor: pointer;
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+    #countrySelect:hover { border-color: var(--border-hover); background: var(--surface-hover); }
+    #countrySelect:focus { outline: none; border-color: var(--cv-from); }
+    #countrySelect option { background: #15152b; color: var(--text-primary); }
+    #countrySelect:disabled { opacity: 0.5; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -418,12 +464,22 @@
 
     <!-- Header -->
     <div class="header">
-      <div class="logo">🇩🇪</div>
+      <div class="logo" id="logoFlag">🌍</div>
       <div class="header-text">
-        <h1>German CV Customizer</h1>
+        <h1>CV Customizer</h1>
         <p>AI-powered · ATS-optimized · One click</p>
       </div>
       <div class="status-dot" id="statusDot" title="Backend connected"></div>
+    </div>
+
+    <!-- Country Selector -->
+    <div class="country-picker">
+      <label class="country-label" for="countrySelect">Target country</label>
+      <div class="country-select-wrap">
+        <select id="countrySelect" disabled>
+          <option value="">Loading countries...</option>
+        </select>
+      </div>
     </div>
 
     <!-- Action Cards -->
@@ -484,7 +540,7 @@
 
     <!-- Footer -->
     <div class="footer">
-      <div class="footer-text">v2.0 · Tailored for Germany</div>
+      <div class="footer-text" id="footerText">v3.0</div>
       <div class="powered-badge">Powered by <span>GPT-4o-mini</span></div>
     </div>
 

@@ -30,10 +30,70 @@ const errorPanel     = document.getElementById('errorPanel');
 const errorText      = document.getElementById('errorText');
 const downloadLabel  = document.getElementById('downloadLabel');
 const statusDot      = document.getElementById('statusDot');
+const countrySelect  = document.getElementById('countrySelect');
+const logoFlag       = document.getElementById('logoFlag');
+const footerText     = document.getElementById('footerText');
 
 let pendingContent   = null;
 let pendingFilename  = null;
 let pendingMimeType  = null;
+
+// =====================================================================
+// Country selector — fully dynamic. The list comes from the backend's
+// /countries endpoint (itself auto-discovered from cv_<country>.md
+// files), so a new country added to the backend shows up here with no
+// extension update or redeploy required.
+// =====================================================================
+function updateBrandingForCountry(flag, name) {
+  logoFlag.textContent = flag || '🌍';
+  footerText.textContent = name ? `v3.0 · Tailored for ${name}` : 'v3.0';
+}
+
+async function loadCountries() {
+  try {
+    const res = await fetch(`${BACKEND_URL}/countries`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error();
+    const { countries } = await res.json();
+    if (!countries || !countries.length) throw new Error();
+
+    const { lastCountry } = await chrome.storage.local.get(['lastCountry']);
+    const defaultSlug = countries.some(c => c.slug === lastCountry) ? lastCountry : countries[0].slug;
+
+    countrySelect.innerHTML = '';
+    countries.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.slug;
+      opt.textContent = `${c.flag} ${c.name}`;
+      opt.dataset.flag = c.flag;
+      opt.dataset.name = c.name;
+      countrySelect.appendChild(opt);
+    });
+    countrySelect.value = defaultSlug;
+    countrySelect.disabled = false;
+
+    const selected = countries.find(c => c.slug === defaultSlug) || countries[0];
+    updateBrandingForCountry(selected.flag, selected.name);
+  } catch (err) {
+    countrySelect.innerHTML = '<option value="">Backend unreachable</option>';
+    countrySelect.disabled = true;
+  }
+}
+
+countrySelect.addEventListener('change', () => {
+  const opt = countrySelect.selectedOptions[0];
+  if (!opt) return;
+  chrome.storage.local.set({ lastCountry: opt.value });
+  updateBrandingForCountry(opt.dataset.flag, opt.dataset.name);
+});
+
+function selectedCountry() {
+  return countrySelect.value || 'germany';
+}
+
+function selectedCountryName() {
+  const opt = countrySelect.selectedOptions[0];
+  return (opt && opt.dataset.name) || 'Optimized';
+}
 
 // =====================================================================
 // Backend health check (dim the dot if unreachable or unconfigured)
@@ -56,6 +116,7 @@ loadConfig().then((configured) => {
       statusDot.style.boxShadow = '0 0 6px #f59e0b';
       statusDot.title = 'Backend unreachable';
     });
+  loadCountries();
 });
 
 // =====================================================================
@@ -229,7 +290,7 @@ async function extractJDText() {
 // Backend call — both /optimize and /cover_letter return a raw PDF
 // file, never JSON — always fetch as a blob.
 // =====================================================================
-async function callBackendPDF(endpoint, jdText) {
+async function callBackendPDF(endpoint, jdText, country) {
   if (!BACKEND_URL || !API_KEY) throw new Error('Not configured — open extension options and set your backend URL and API key.');
   const res = await fetch(`${BACKEND_URL}${endpoint}`, {
     method: 'POST',
@@ -237,7 +298,7 @@ async function callBackendPDF(endpoint, jdText) {
       'Content-Type': 'application/json',
       'X-API-Key': API_KEY
     },
-    body: JSON.stringify({ jd_text: jdText })
+    body: JSON.stringify({ jd_text: jdText, country })
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -250,13 +311,15 @@ async function callBackendPDF(endpoint, jdText) {
 // Flow: Optimize CV
 // =====================================================================
 cvCard.addEventListener('click', async () => {
-  if (cvCard.classList.contains('disabled')) return;
+  if (cvCard.classList.contains('disabled') || countrySelect.disabled) return;
   showProgress('cv');
 
   try {
-    const jdText = await extractJDText();
-    const blob   = await callBackendPDF('/optimize', jdText);
-    showResult('cv', blob, 'Sayam-Kumar-CV-German-Optimized.pdf', 'application/pdf');
+    const jdText  = await extractJDText();
+    const country = selectedCountry();
+    const blob    = await callBackendPDF('/optimize', jdText, country);
+    const name    = selectedCountryName().replace(/\s+/g, '-');
+    showResult('cv', blob, `Sayam-Kumar-CV-${name}-Optimized.pdf`, 'application/pdf');
   } catch (err) {
     showError(err.message || 'Something went wrong. Check the backend is running.');
   }
@@ -266,13 +329,15 @@ cvCard.addEventListener('click', async () => {
 // Flow: Generate Cover Letter
 // =====================================================================
 clCard.addEventListener('click', async () => {
-  if (clCard.classList.contains('disabled')) return;
+  if (clCard.classList.contains('disabled') || countrySelect.disabled) return;
   showProgress('cl');
 
   try {
-    const jdText = await extractJDText();
-    const blob   = await callBackendPDF('/cover_letter', jdText);
-    showResult('cl', blob, 'Sayam-Kumar-Cover-Letter-German-Optimized.pdf', 'application/pdf');
+    const jdText  = await extractJDText();
+    const country = selectedCountry();
+    const blob    = await callBackendPDF('/cover_letter', jdText, country);
+    const name    = selectedCountryName().replace(/\s+/g, '-');
+    showResult('cl', blob, `Sayam-Kumar-Cover-Letter-${name}-Optimized.pdf`, 'application/pdf');
   } catch (err) {
     showError(err.message || 'Something went wrong. Check the backend is running.');
   }

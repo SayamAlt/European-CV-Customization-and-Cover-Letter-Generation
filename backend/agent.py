@@ -1,5 +1,6 @@
 import os
 import re
+import glob
 import html as html_lib
 from datetime import datetime
 from functools import lru_cache
@@ -14,6 +15,71 @@ from pydantic import BaseModel, Field
 from xhtml2pdf import pisa
 
 load_dotenv()
+
+# =====================================================================
+# Country registry — fully convention-driven, zero hardcoded country
+# list. Adding a new country to this pipeline is a pure file-drop:
+# save a "cv_<slug>.md" next to cv.md (Germany's file, kept unprefixed
+# for backward compatibility with the original single-country setup),
+# and every endpoint, the cache, and the cover letter's fact-grounding
+# pick it up automatically — no code change anywhere in this file or
+# in main.py/app.py is required for the new country to work.
+# =====================================================================
+
+# Display name and flag are cosmetic only (UI polish) and fall back to
+# a generic title-cased slug + globe emoji for any country not listed
+# here, so an unrecognized future slug still works end to end, just
+# without custom branding until someone adds an entry below.
+_COUNTRY_DISPLAY_NAMES = {
+    "germany": "Germany",
+    "netherlands": "Netherlands",
+    "uk": "United Kingdom",
+    "ireland": "Ireland",
+    "austria": "Austria",
+    "sweden": "Sweden",
+}
+_COUNTRY_FLAGS = {
+    "germany": "🇩🇪",
+    "netherlands": "🇳🇱",
+    "uk": "🇬🇧",
+    "ireland": "🇮🇪",
+    "austria": "🇦🇹",
+    "sweden": "🇸🇪",
+}
+
+def slugify_country(country: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", (country or "").strip().lower()).strip("_")
+
+def country_display_name(slug: str) -> str:
+    return _COUNTRY_DISPLAY_NAMES.get(slug, slug.replace("_", " ").title() if slug else "Unknown")
+
+def country_flag(slug: str) -> str:
+    return _COUNTRY_FLAGS.get(slug, "🌍")
+
+def canonical_country_slug(country: str) -> str:
+    slug = slugify_country(country)
+    return "germany" if slug in ("", "germany", "de", "deutschland") else slug
+
+def cv_filename_for_country(country: str) -> str:
+    """Pure name resolution, no filesystem I/O — callers check existence
+    themselves against whichever directory (local or storage bucket)
+    they resolve files from."""
+    slug = canonical_country_slug(country)
+    return "cv.md" if slug == "germany" else f"cv_{slug}.md"
+
+def discover_countries(base_dir: str) -> list[dict]:
+    """Scans base_dir for cv.md plus every cv_<slug>.md and returns the
+    full list of countries this deployment currently supports. This is
+    what makes the pipeline self-describing: the API and the extension
+    both call this instead of hardcoding a country list, so a newly
+    dropped-in cv_<slug>.md file appears everywhere automatically."""
+    countries = []
+    if os.path.exists(os.path.join(base_dir, "cv.md")):
+        countries.append({"slug": "germany", "name": country_display_name("germany"), "flag": country_flag("germany")})
+    for path in sorted(glob.glob(os.path.join(base_dir, "cv_*.md"))):
+        slug = os.path.splitext(os.path.basename(path))[0][len("cv_"):]
+        countries.append({"slug": slug, "name": country_display_name(slug), "flag": country_flag(slug)})
+    return countries
 
 # timeout + bounded retries: don't hang a request forever on a flaky
 # upstream call, but tolerate one transient network blip.

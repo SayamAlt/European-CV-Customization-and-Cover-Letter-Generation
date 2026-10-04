@@ -4,7 +4,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.responses import Response
 from pydantic import BaseModel
-from agent import process_cv, process_cover_letter, html_to_pdf_bytes
+from agent import (
+    process_cv,
+    process_cover_letter,
+    html_to_pdf_bytes,
+    cv_filename_for_country,
+    canonical_country_slug,
+    country_display_name,
+    discover_countries,
+)
 
 app = FastAPI()
 
@@ -26,18 +34,38 @@ def verify_key(key: str = Security(api_key_header)):
         raise HTTPException(status_code=403, detail="Invalid API key.")
     return key
 
-# Paths to bundled reference files (copied into Docker image)
-# cv.md is the single canonical reference CV the AI pipeline runs on
-# top of — never substitute a PDF or any other resume file here.
-BASE_CV_PATH = os.path.join(os.path.dirname(__file__), "cv.md")
-BASE_CL_PATH = os.path.join(os.path.dirname(__file__), "cover_letter_template.html")
+# Paths to bundled reference files (copied into Docker image).
+# BASE_DIR holds cv.md (Germany) plus any cv_<country>.md files —
+# dropping a new one in here is the entire onboarding step for a new
+# country; nothing below needs to change to support it.
+BASE_DIR = os.path.dirname(__file__)
+BASE_CL_PATH = os.path.join(BASE_DIR, "cover_letter_template.html")
 
 class JDRequest(BaseModel):
     jd_text: str
+    country: str = "germany"
+
+def _resolve_base_cv_path(country: str) -> str:
+    filename = cv_filename_for_country(country)
+    path = os.path.join(BASE_DIR, filename)
+    if not os.path.exists(path):
+        available = ", ".join(c["slug"] for c in discover_countries(BASE_DIR))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported country '{country}'. Available: {available}."
+        )
+    return path
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+@app.get("/countries")
+def list_countries():
+    """Self-describing country list — the extension (or any client)
+    calls this instead of hardcoding country options, so a new
+    cv_<country>.md dropped into the backend shows up automatically."""
+    return {"countries": discover_countries(BASE_DIR)}
 
 # Plain `def`, not `async def`: process_cv/process_cover_letter block on
 # network calls to the LLM. FastAPI runs sync route functions in its
@@ -48,17 +76,17 @@ def optimize_cv(request: JDRequest, _: str = Security(verify_key)):
     jd = request.jd_text.strip()
     if len(jd) < 50:
         raise HTTPException(status_code=400, detail="Job Description too short.")
-    if not os.path.exists(BASE_CV_PATH):
-        raise HTTPException(status_code=500, detail="Base CV not found in container.")
 
-    with open(BASE_CV_PATH, "r", encoding="utf-8") as f:
+    base_cv_path = _resolve_base_cv_path(request.country)
+    with open(base_cv_path, "r", encoding="utf-8") as f:
         base_cv = f.read()
 
     pdf_bytes = process_cv(jd, base_cv)
+    country_name = country_display_name(canonical_country_slug(request.country))
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": "attachment; filename=Sayam-Kumar-CV-German-Optimized.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=Sayam-Kumar-CV-{country_name.replace(' ', '-')}-Optimized.pdf"}
     )
 
 @app.post("/cover_letter")
@@ -68,18 +96,18 @@ def generate_cover_letter(request: JDRequest, _: str = Security(verify_key)):
         raise HTTPException(status_code=400, detail="Job Description too short.")
     if not os.path.exists(BASE_CL_PATH):
         raise HTTPException(status_code=500, detail="Cover letter template not found in container.")
-    if not os.path.exists(BASE_CV_PATH):
-        raise HTTPException(status_code=500, detail="cv.md not found in container.")
 
+    base_cv_path = _resolve_base_cv_path(request.country)
     with open(BASE_CL_PATH, "r", encoding="utf-8") as f:
         base_cl = f.read()
-    with open(BASE_CV_PATH, "r", encoding="utf-8") as f:
+    with open(base_cv_path, "r", encoding="utf-8") as f:
         base_cv = f.read()
 
     result = process_cover_letter(jd, base_cl, base_cv)
     pdf_bytes = html_to_pdf_bytes(result)
+    country_name = country_display_name(canonical_country_slug(request.country))
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": "attachment; filename=Sayam-Kumar-Cover-Letter-German-Optimized.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=Sayam-Kumar-Cover-Letter-{country_name.replace(' ', '-')}-Optimized.pdf"}
     )

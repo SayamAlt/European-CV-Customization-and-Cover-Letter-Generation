@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "German CV Customizer",
-  "version": "2.0",
-  "description": "Optimize your German CV and generate tailored Cover Letters powered by AI.",
+  "name": "CV Customizer — Europe",
+  "version": "3.0",
+  "description": "Optimize your CV and generate tailored Cover Letters for any supported European country, powered by AI.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": [
     "https://*.hf.space/*",
@@ -10,7 +10,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "German CV Customizer"
+    "default_title": "CV Customizer — Europe"
   },
   "options_page": "options.html"
 }

@@ -1,54 +1,39 @@
 """
-app.py — HF Spaces entry point (Gradio SDK, free tier)
+app.py — Render deployment entry point.
 
-HF Spaces with Gradio SDK looks for a file named app.py.
-We mount our FastAPI routes onto a minimal Gradio Blocks app so the
-extension's /optimize and /cover_letter endpoints work unchanged.
+Dockerfile runs `uvicorn app:app`, so this module's `app` is the live
+production FastAPI instance. (An earlier HF Spaces deployment, with a
+Gradio wrapper and a /data storage-bucket mount, was dropped in favor
+of Render — this file now targets Render only.)
 
 File strategy:
-  cv.md and cover_letter_template.html are stored in the HF Storage
-  Bucket mounted at /data (Read & Write, Private). The Space code
-  (app.py, agent.py) lives in the Space repository. This means updating
-  your CV only requires updating the file in the bucket — no Space
-  redeploy needed.
-
-Reference CV:
-  cv.md is the single canonical source CV the AI pipeline runs on top
-  of. Gradio SDK Spaces cannot accept binary PDF uploads through the
-  bucket, so the pipeline reads plain Markdown text directly — never a
-  PDF or any other resume file.
+  cv.md (Germany) and every cv_<country>.md variant, plus
+  cover_letter_template.html, are copied straight into the Docker
+  image (Dockerfile's `COPY . .`) and read from the local filesystem.
+  Adding a new country is: drop a new cv_<country>.md next to cv.md,
+  commit, redeploy — /countries, /optimize, and /cover_letter all pick
+  it up automatically, no other code change needed anywhere.
 """
 
 import os
-import gradio as gr
 from fastapi import FastAPI, HTTPException, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.responses import Response
 from pydantic import BaseModel
-from agent import process_cv, process_cover_letter, html_to_pdf_bytes
+from agent import (
+    process_cv,
+    process_cover_letter,
+    html_to_pdf_bytes,
+    cv_filename_for_country,
+    canonical_country_slug,
+    country_display_name,
+    discover_countries,
+)
 
-# This Space is CPU-only (FastAPI routing + OpenAI API calls, no local
-# inference). If Space hardware is pinned to ZeroGPU and can't be
-# switched to CPU basic, HF refuses to start unless it finds at least
-# one @spaces.GPU-decorated function. This dummy satisfies that check;
-# it is never invoked. Remove this block entirely once hardware is on
-# CPU basic.
-try:
-    import spaces
+app = FastAPI()
 
-    @spaces.GPU
-    def _zerogpu_startup_stub():
-        return None
-except ImportError:
-    pass
-
-CV_FILENAME = "cv.md"
-
-# ---- FastAPI app with all routes ----
-fastapi_app = FastAPI()
-
-fastapi_app.add_middleware(
+app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
@@ -64,98 +49,82 @@ def verify_key(key: str = Security(api_key_header)):
         raise HTTPException(status_code=403, detail="Invalid API key.")
     return key
 
-# Storage Bucket is mounted at /data (configured during Space creation).
-# Falls back to the local Space directory for local development.
-BUCKET_DIR = "/data"
-LOCAL_DIR  = os.path.dirname(__file__)
-
-def _resolve(filename: str) -> str:
-    """Return path to a data file, preferring the bucket mount at /data."""
-    bucket_path = os.path.join(BUCKET_DIR, filename)
-    local_path  = os.path.join(LOCAL_DIR, filename)
-    if os.path.exists(bucket_path):
-        return bucket_path
-    return local_path  # fallback for local dev
+BASE_DIR = os.path.dirname(__file__)
+BASE_CL_PATH = os.path.join(BASE_DIR, "cover_letter_template.html")
 
 class JDRequest(BaseModel):
     jd_text: str
+    country: str = "germany"
 
-@fastapi_app.get("/health")
+def _resolve_base_cv_path(country: str) -> str:
+    filename = cv_filename_for_country(country)
+    path = os.path.join(BASE_DIR, filename)
+    if not os.path.exists(path):
+        available = ", ".join(c["slug"] for c in discover_countries(BASE_DIR))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported country '{country}'. Available: {available}."
+        )
+    return path
+
+@app.get("/health")
 def health():
-    cv_ok = os.path.exists(_resolve(CV_FILENAME))
-    cl_ok = os.path.exists(_resolve("cover_letter_template.html"))
     return {
         "status": "ok",
-        "cv_md_found": cv_ok,
-        "cover_letter_template_found": cl_ok,
-        "data_source": "bucket (/data)" if os.path.exists(f"/data/{CV_FILENAME}") else "local (Space files)"
+        "cv_md_found": os.path.exists(os.path.join(BASE_DIR, "cv.md")),
+        "cover_letter_template_found": os.path.exists(BASE_CL_PATH),
+        "countries_supported": len(discover_countries(BASE_DIR)),
     }
 
-@fastapi_app.post("/optimize")
-async def optimize_cv(request: JDRequest, _: str = Security(verify_key)):
+@app.get("/countries")
+def list_countries():
+    """Self-describing country list — the extension (or any client)
+    calls this instead of hardcoding country options, so a new
+    cv_<country>.md committed to the repo shows up automatically on
+    the next deploy."""
+    return {"countries": discover_countries(BASE_DIR)}
+
+# Plain `def`, not `async def`: process_cv/process_cover_letter block on
+# network calls to the LLM. FastAPI runs sync route functions in its
+# threadpool, so one slow request no longer stalls the whole event loop
+# and other requests keep being served concurrently.
+@app.post("/optimize")
+def optimize_cv(request: JDRequest, _: str = Security(verify_key)):
     jd = request.jd_text.strip()
     if len(jd) < 50:
         raise HTTPException(status_code=400, detail="Job Description too short.")
-    cv_path = _resolve(CV_FILENAME)
-    if not os.path.exists(cv_path):
-        raise HTTPException(status_code=500, detail=f"{CV_FILENAME} not found. Upload it to the Storage Bucket at /data/.")
-    with open(cv_path, "r", encoding="utf-8") as f:
+
+    base_cv_path = _resolve_base_cv_path(request.country)
+    with open(base_cv_path, "r", encoding="utf-8") as f:
         base_cv = f.read()
+
     pdf_bytes = process_cv(jd, base_cv)
+    country_name = country_display_name(canonical_country_slug(request.country))
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": "attachment; filename=Sayam-Kumar-CV-German-Optimized.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=Sayam-Kumar-CV-{country_name.replace(' ', '-')}-Optimized.pdf"}
     )
 
-@fastapi_app.post("/cover_letter")
-async def generate_cover_letter(request: JDRequest, _: str = Security(verify_key)):
+@app.post("/cover_letter")
+def generate_cover_letter(request: JDRequest, _: str = Security(verify_key)):
     jd = request.jd_text.strip()
     if len(jd) < 50:
         raise HTTPException(status_code=400, detail="Job Description too short.")
-    cl_path = _resolve("cover_letter_template.html")
-    if not os.path.exists(cl_path):
-        raise HTTPException(status_code=500, detail="cover_letter_template.html not found. Upload it to the Storage Bucket at /data/.")
-    cv_path = _resolve(CV_FILENAME)
-    if not os.path.exists(cv_path):
-        raise HTTPException(status_code=500, detail=f"{CV_FILENAME} not found. Upload it to the Storage Bucket at /data/.")
-    with open(cl_path, "r", encoding="utf-8") as f:
+    if not os.path.exists(BASE_CL_PATH):
+        raise HTTPException(status_code=500, detail="Cover letter template not found in container.")
+
+    base_cv_path = _resolve_base_cv_path(request.country)
+    with open(BASE_CL_PATH, "r", encoding="utf-8") as f:
         base_cl = f.read()
-    with open(cv_path, "r", encoding="utf-8") as f:
+    with open(base_cv_path, "r", encoding="utf-8") as f:
         base_cv = f.read()
+
     result = process_cover_letter(jd, base_cl, base_cv)
     pdf_bytes = html_to_pdf_bytes(result)
+    country_name = country_display_name(canonical_country_slug(request.country))
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": "attachment; filename=Sayam-Kumar-Cover-Letter-German-Optimized.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=Sayam-Kumar-Cover-Letter-{country_name.replace(' ', '-')}-Optimized.pdf"}
     )
-
-# ---- Minimal Gradio UI (required by Gradio SDK) ----
-cv_status = f"✅ found at /data/{CV_FILENAME}" if os.path.exists(f"/data/{CV_FILENAME}") else "⚠️ not in bucket yet — upload via HF Files"
-cl_status = "✅ found at /data/cover_letter_template.html" if os.path.exists("/data/cover_letter_template.html") else "⚠️ not in bucket yet — upload via HF Files"
-
-with gr.Blocks(title="German CV Optimizer API") as demo:
-    gr.Markdown(
-        f"""
-        ## German CV Optimizer — Backend API
-        This Space powers the **German CV Customizer** Chrome Extension.
-        Use the extension in your browser to optimize your CV and generate cover letters.
-
-        **API Endpoints:**
-        - `GET /health` — Check server status + bucket file presence
-        - `POST /optimize` — Optimize CV for a job description
-        - `POST /cover_letter` — Generate tailored cover letter
-
-        **Storage Bucket Status (mounted at `/data`):**
-        | File | Status |
-        |---|---|
-        | `{CV_FILENAME}` | {cv_status} |
-        | `cover_letter_template.html` | {cl_status} |
-
-        > To update your CV without redeploying, simply replace `{CV_FILENAME}` in the bucket.
-        """
-    )
-
-# ---- Mount FastAPI onto Gradio (Gradio SDK serves this as `app`) ----
-app = gr.mount_gradio_app(fastapi_app, demo, path="/ui")
