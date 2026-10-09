@@ -51,7 +51,7 @@ function updateBrandingForCountry(flag, name) {
 
 async function loadCountries() {
   try {
-    const res = await fetch(`${BACKEND_URL}/countries`, { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(`${BACKEND_URL}/countries`, { signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS) });
     if (!res.ok) throw new Error();
     const { countries } = await res.json();
     if (!countries || !countries.length) throw new Error();
@@ -91,26 +91,64 @@ function selectedCountry() {
 }
 
 // =====================================================================
-// Backend health check (dim the dot if unreachable or unconfigured)
+// Backend health check with cold-start retry.
+//
+// The backend runs on Render's free tier, which spins the instance down
+// after ~15 min of inactivity. Waking it back up can take 30-50+ seconds,
+// far longer than a single health-check timeout. Without a retry loop,
+// the first popup open after any idle period permanently shows "Backend
+// unreachable" for that session — closing and reopening the popup (or
+// reloading the extension) only "fixes" it by coincidence, because enough
+// wall-clock time passed for Render to finish waking up. Polling instead
+// of failing once means it recovers on its own, in the same popup open.
 // =====================================================================
-loadConfig().then((configured) => {
+const COLD_START_MAX_MS = 75000;   // Render free-tier cold start budget
+const RETRY_INTERVAL_MS = 3000;
+const ATTEMPT_TIMEOUT_MS = 8000;
+
+function setStatus(color, title) {
+  statusDot.style.background = color;
+  statusDot.style.boxShadow = `0 0 6px ${color}`;
+  statusDot.title = title;
+}
+
+async function waitForBackend() {
+  const deadline = Date.now() + COLD_START_MAX_MS;
+  let firstAttempt = true;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${BACKEND_URL}/health`, { signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS) });
+      if (res.ok) return true;
+    } catch (_) {
+      // Likely a Render cold start — keep retrying until the deadline.
+    }
+    if (firstAttempt) {
+      firstAttempt = false;
+      setStatus('#f59e0b', 'Waking up backend (cold start)… this can take up to a minute');
+      countrySelect.innerHTML = '<option value="">Waking up backend…</option>';
+    }
+    await new Promise(r => setTimeout(r, RETRY_INTERVAL_MS));
+  }
+  return false;
+}
+
+loadConfig().then(async (configured) => {
   if (!configured) {
-    statusDot.style.background = '#dc2626';
-    statusDot.style.boxShadow = '0 0 6px #dc2626';
-    statusDot.title = 'Not configured — click to open setup';
+    setStatus('#dc2626', 'Not configured — click to open setup');
     statusDot.style.cursor = 'pointer';
     statusDot.addEventListener('click', () => chrome.runtime.openOptionsPage());
     return;
   }
-  fetch(`${BACKEND_URL}/health`, { signal: AbortSignal.timeout(4000) })
-    .then(r => {
-      if (!r.ok) throw new Error();
-    })
-    .catch(() => {
-      statusDot.style.background = '#f59e0b';
-      statusDot.style.boxShadow = '0 0 6px #f59e0b';
-      statusDot.title = 'Backend unreachable';
-    });
+
+  const awake = await waitForBackend();
+  if (!awake) {
+    setStatus('#dc2626', 'Backend unreachable — check it is deployed and running');
+    countrySelect.innerHTML = '<option value="">Backend unreachable</option>';
+    countrySelect.disabled = true;
+    return;
+  }
+
+  setStatus('#22c55e', 'Backend connected');
   loadCountries();
 });
 
