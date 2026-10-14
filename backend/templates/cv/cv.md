@@ -9,6 +9,9 @@
 - GitHub: https://github.com/SayamAlt
 - LinkedIn: https://www.linkedin.com/in/sayam-kumar/
 - Portfolio: https://sayamalt.github.io/My-Portfolio-Website/
+- Nationality: Indian
+- Visa: Requires visa sponsorship (EU Blue Card eligible)
+- Photo: photo_germany.jpg
 
 ---
 
@@ -83,8 +86,9 @@ Power BI, Tableau, Matplotlib, Seaborn, ggplot2, Plotly, Data Storytelling, Dash
 
 ## LANGUAGES
 
-English — Fluent
-Hindi — Native
+English: C1
+Hindi: C2
+German: A1
 
 ---
 

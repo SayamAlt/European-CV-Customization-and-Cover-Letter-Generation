@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from agent import (
     process_cv,
     process_cover_letter,
-    html_to_pdf_bytes,
+    render_cover_letter_pdf,
     cv_filename_for_country,
     cl_filename_for_country,
     discover_countries,
@@ -124,7 +124,7 @@ def generate_cover_letter(request: JDRequest, _: str = Security(verify_key)):
         base_cv = f.read()
 
     result = process_cover_letter(jd, base_cl, base_cv, request.country)
-    pdf_bytes = html_to_pdf_bytes(result)
+    pdf_bytes = render_cover_letter_pdf(result)
     company = sanitize_filename_segment(extract_company_name(jd))
     return Response(
         content=pdf_bytes,

@@ -45,26 +45,29 @@ Power BI, Tableau, Matplotlib, Seaborn, ggplot2, Plotly, Data Storytelling, Dash
 
 ## WORK EXPERIENCE
 
-**Zenon** — Noida, Uttar Pradesh, India  
+**HyperPulse AI Private Limited** — Noida, Uttar Pradesh, India  
 *Full Stack AI Engineer (ML Focused)* | Aug 2026 - Present
 
-- Reduced LLM token costs by 32% and response latency by 38% in a production AI assistant via prompt compression, semantic caching, and a pgvector-backed RAG pipeline with structured output enforcement.
-- Executed COBOL-to-AUDI platform data migrations for ampliFi (credit card loyalty, US banking) via Git Bash scripts across customer and transaction datasets, detecting and resolving data integrity gaps throughout.
-- Ensured PII compliance and financial data security across migrated datasets using Legacy Analyzer for COBOL audits; collaborated cross-functionally with UTI and data migration teams to validate consistency in the target platform.
+- Cut LLM token costs by 32% and latency by 38% in doForms' AI chatbot (auto-generates customer forms from chat) via prompt/context caching, fastpath routing, low-cost execution paths, model-routing optimization, batch processing, and a pgvector-backed RAG pipeline with structured outputs.
+- Built an OCR-based document-ingestion layer on doForms' generation pipeline, enabling form generation directly from uploaded PDFs, scanned images, and Word docs, extending doForms' core product.
+- Executed COBOL-to-AUDI legacy data migrations for ampliFi Loyalty Solutions Inc. (credit card loyalty, US banking) via Git Bash scripts across customer/transaction datasets, detecting and resolving data-integrity gaps.
+- Ensured PII compliance and financial-data security across migrated ampliFi datasets via Legacy Analyzer COBOL audits; collaborated with UTI and data-migration teams to validate target-platform consistency.
 
 **Mechademy Incorporated** — Delhi, India  
 *Data Science Intern* | Aug 2023 - Nov 2023
 
-- Developed regression-based ML models for tabular client datasets, improving prediction accuracy by 20% and enhancing decision-making reliability.
-- Designed and implemented data cleaning pipelines that processed 50K+ rows/week, improving data quality and reducing preprocessing time by 30%.
-- Built an automated EDA module that cut initial analysis time by 40%, enabling faster insights from raw datasets and accelerating project delivery.
+- Developed regression-based ML models for tabular client datasets, improving prediction accuracy by 20% and decision-making reliability.
+- Designed data-cleaning pipelines processing 50K+ rows/week, improving data quality and cutting preprocessing time by 30%.
+- Built an automated EDA module cutting initial analysis time by 40%, accelerating insights and project delivery.
+- Implemented an automated analytics pipeline using statistical methods (statsmodels, SciPy) to process 30K+ real-time streaming records/day across dozens of industrial sensors, cutting manual fault-detection effort by ~25% and enabling proactive, reliable analytics.
 
-**ExactSpace Technologies Private Limited** — Bangalore, India  
+**ExactSpace Technologies Private Limited** — Bangalore, Karnataka, India  
 *Data Science Intern* | Jun 2022 - Jul 2023
 
 - Developed a time-series forecasting model for boiler oxygen levels, reducing fuel consumption by 18%.
 - Built a 92% accurate billet classification model for real-time cobble detection, reducing downtime by 15%.
-- Implemented an anomaly detection pipeline and analyzed 10K+ logs, improving failure prediction F1-score by 30% and reducing unplanned operational downtime.
+- Implemented an anomaly detection pipeline analyzing 10K+ logs, improving failure-prediction F1-score by 30% and cutting unplanned downtime.
+- Applied particle swarm optimization to cluster 100K+ real-time industrial sensor data points, enabling faster pattern detection across ExactSpace's predictive-maintenance pipelines.
 
 ---
 

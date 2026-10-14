@@ -1,6 +1,8 @@
 import os
 import re
 import glob
+import base64
+import mimetypes
 import html as html_lib
 from datetime import datetime
 from functools import lru_cache
@@ -209,7 +211,9 @@ def parse_base_cv(md_text: str) -> dict:
 
     languages = []
     for line in _section(md_text, "LANGUAGES").split("\n"):
-        m = re.match(r"(.+?)\s*—\s*(.+)", line.strip())
+        # Supports both "Name — Level" (Fluent/Native, used by most
+        # countries) and "Name: CEFR-code" (Germany's reference format).
+        m = re.match(r"(.+?)\s*[:—]\s*(.+)", line.strip())
         if m:
             languages.append((m.group(1).strip(), m.group(2).strip()))
     data["languages"] = languages
@@ -613,6 +617,38 @@ def process_cover_letter(jd_text: str, base_cl: str, base_cv: str, country: str 
     return re.sub(r"\{{1,2}\s*TODAY\s*\}{1,2}", today, html, flags=re.IGNORECASE)
 
 # =====================================================================
+# One-page enforcement for the cover letter. write_cover_letter's prompt
+# already asks the model for exactly one page, but that's a request, not
+# a guarantee — longer JDs/requirement lists can still push it over. This
+# renders, checks the ACTUAL page count, and if it overflows, asks the
+# model to condense the existing HTML (not regenerate from scratch, so
+# facts/structure/CSS can't drift) and retries, same conservative
+# shrink-and-check pattern render_cv_pdf already uses for the CV side.
+# =====================================================================
+_CONDENSE_CL_PROMPT = PromptTemplate.from_template(
+    "The HTML cover letter below renders to MORE THAN ONE PAGE, which is not allowed "
+    "— it must fit on EXACTLY one page. Shorten it by tightening wording and trimming "
+    "the least essential sentences from the body paragraphs. Do NOT remove any "
+    "paragraph entirely, do NOT change any fact, company name, role title, date, or "
+    "the HTML structure/CSS/classes/contact-row — only make the existing paragraphs "
+    "noticeably shorter. Output ONLY the complete revised HTML, no commentary, no "
+    "code fences.\n\nCurrent HTML:\n{html}"
+)
+_condense_cl_chain = _CONDENSE_CL_PROMPT | llm
+
+def render_cover_letter_pdf(html: str, max_attempts: int = 3) -> bytes:
+    current_html = html
+    last_pdf = None
+    for attempt in range(max_attempts):
+        pdf_bytes = html_to_pdf_bytes(current_html)
+        last_pdf = pdf_bytes
+        if _pdf_page_count(pdf_bytes) <= 1:
+            return pdf_bytes
+        if attempt < max_attempts - 1:
+            current_html = _strip_code_fences(_condense_cl_chain.invoke({"html": current_html}).content)
+    return last_pdf
+
+# =====================================================================
 # Fixed CV PDF template — mirrors cv-sayam-kumar-german.pdf's exact
 # layout (header, section rules, entry structure, bolded metrics) so
 # every generated CV matches it regardless of what the LLM wrote.
@@ -626,6 +662,25 @@ def _highlight_metrics(text: str) -> str:
 
 def _esc(text: str) -> str:
     return html_lib.escape(text or "")
+
+# A country's cv_<slug>.md opts into a headshot purely by declaring a
+# "Photo" contact field naming a file in this same directory (see
+# render_cv_html's personal_parts/photo_html block) — no other country
+# currently does, so this stays dormant for all of them.
+_TEMPLATES_CV_DIR = os.path.join(os.path.dirname(__file__), "templates", "cv")
+
+@lru_cache(maxsize=16)
+def _photo_data_uri(filename: str) -> str:
+    """Reads the named photo once and returns it as a data: URI so xhtml2pdf
+    can embed it directly with no filesystem/relative-path dependency at
+    render time. Missing file degrades to no photo rather than a crash."""
+    path = os.path.join(_TEMPLATES_CV_DIR, filename)
+    if not os.path.isfile(path):
+        return ""
+    mime = mimetypes.guess_type(filename)[0] or "image/jpeg"
+    with open(path, "rb") as f:
+        encoded = base64.b64encode(f.read()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
 
 def render_cv_html(data: dict, scale: float = 1.0, country: str = "germany") -> str:
     accent = country_accent(canonical_country_slug(country))
@@ -649,6 +704,43 @@ def render_cv_html(data: dict, scale: float = 1.0, country: str = "germany") -> 
     if contact.get("location"):
         contact_parts.append(_esc(contact["location"]))
     contact_line = " | ".join(contact_parts)
+
+    # Nationality/visa line and the headshot photo are purely opt-in, driven
+    # by whether the source cv_<country>.md declares a "Photo"/"Nationality"
+    # contact field — no country name is ever checked here. This is what
+    # keeps Germany's reference-format extras (photo, visa status) from
+    # leaking into any other country's CV: a country simply doesn't define
+    # those fields and nothing renders.
+    personal_parts = []
+    if contact.get("nationality"):
+        personal_parts.append(f"Nationality: {_esc(contact['nationality'])}")
+    if contact.get("visa"):
+        personal_parts.append(_esc(contact["visa"]))
+    personal_line = " | ".join(personal_parts)
+
+    photo_html = ""
+    if contact.get("photo"):
+        photo_uri = _photo_data_uri(contact["photo"])
+        if photo_uri:
+            photo_html = f'<img class="photo" src="{photo_uri}">'
+
+    personal_line_html = f'<div class="personal-line">{personal_line}</div>' if personal_line else ""
+    header_text_html = f"""<div class="name">{_esc(data['name'])}</div>
+        <div class="title">{_esc(data['title'])}</div>
+        <div class="contact">{contact_line}</div>
+        {personal_line_html}"""
+
+    # xhtml2pdf (pisa) implements no `float`/`object-fit` — a side-by-side
+    # photo has to be a table, not CSS float, or it gets pushed onto its
+    # own line and blows the CV past one page. Countries without a photo
+    # skip the table entirely and keep the plain stacked header.
+    if photo_html:
+        header_html = f"""<table class="header-table"><tr>
+            <td class="header-left">{header_text_html}</td>
+            <td class="header-photo-cell">{photo_html}</td>
+        </tr></table>"""
+    else:
+        header_html = header_text_html
 
     experience_html = ""
     for job in data["experience"]:
@@ -696,9 +788,14 @@ def render_cv_html(data: dict, scale: float = 1.0, country: str = "germany") -> 
     return f"""<html><head><style>
         @page {{ size: A4; margin: {px(10)} {px(28)}; }}
         body {{ font-family: Helvetica, Arial, sans-serif; color: #1a1a1a; font-size: {pt(9.5)}; }}
+        .header-table {{ width: 100%; margin-bottom: 0px; }}
+        .header-left {{ vertical-align: top; }}
+        .header-photo-cell {{ width: {px(60)}; text-align: right; vertical-align: top; }}
+        .photo {{ width: {px(56)}; height: {px(56)}; border-radius: 3px; }}
         .name {{ font-size: {pt(20)}; font-weight: bold; color: {accent}; margin-bottom: 1px; }}
         .title {{ font-size: {pt(11)}; font-weight: bold; color: #444; margin-bottom: 2px; }}
-        .contact {{ font-size: {pt(8)}; color: #555; margin-bottom: {px(5)}; }}
+        .contact {{ font-size: {pt(8)}; color: #555; margin-bottom: {px(1)}; }}
+        .personal-line {{ font-size: {pt(8)}; color: #555; margin-bottom: {px(5)}; }}
         .section-title {{
             font-size: {pt(9.5)}; font-weight: bold; letter-spacing: 0.5px; color: {accent};
             border-bottom: 1.5px solid {accent}; padding-bottom: 1px;
@@ -718,9 +815,7 @@ def render_cv_html(data: dict, scale: float = 1.0, country: str = "germany") -> 
         ul.plain-list li {{ font-size: {pt(8.5)}; line-height: 1.2; margin-bottom: 0px; }}
     </style></head>
     <body>
-        <div class="name">{_esc(data['name'])}</div>
-        <div class="title">{_esc(data['title'])}</div>
-        <div class="contact">{contact_line}</div>
+        {header_html}
 
         <div class="section-title">PROFILE</div>
         <p class="summary">{_esc(data['summary'])}</p>
