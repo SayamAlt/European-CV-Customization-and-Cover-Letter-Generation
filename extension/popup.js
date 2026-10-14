@@ -31,8 +31,6 @@ const errorText      = document.getElementById('errorText');
 const downloadLabel  = document.getElementById('downloadLabel');
 const statusDot      = document.getElementById('statusDot');
 const countrySelect  = document.getElementById('countrySelect');
-const logoFlag       = document.getElementById('logoFlag');
-const footerText     = document.getElementById('footerText');
 
 let pendingContent   = null;
 let pendingFilename  = null;
@@ -43,12 +41,11 @@ let pendingMimeType  = null;
 // /countries endpoint (itself auto-discovered from cv_<country>.md
 // files), so a new country added to the backend shows up here with no
 // extension update or redeploy required.
+//
+// Branding stays generic ("Europe") regardless of which country is
+// selected — the logo and footer describe the product, not whatever
+// country happens to be picked at the moment.
 // =====================================================================
-function updateBrandingForCountry(flag, name) {
-  logoFlag.textContent = flag || '🌍';
-  footerText.textContent = name ? `v3.0 · Tailored for ${name}` : 'v3.0';
-}
-
 async function loadCountries() {
   try {
     const res = await fetch(`${BACKEND_URL}/countries`, { signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS) });
@@ -70,9 +67,6 @@ async function loadCountries() {
     });
     countrySelect.value = defaultSlug;
     countrySelect.disabled = false;
-
-    const selected = countries.find(c => c.slug === defaultSlug) || countries[0];
-    updateBrandingForCountry(selected.flag, selected.name);
   } catch (err) {
     countrySelect.innerHTML = '<option value="">Backend unreachable</option>';
     countrySelect.disabled = true;
@@ -83,7 +77,6 @@ countrySelect.addEventListener('change', () => {
   const opt = countrySelect.selectedOptions[0];
   if (!opt) return;
   chrome.storage.local.set({ lastCountry: opt.value });
-  updateBrandingForCountry(opt.dataset.flag, opt.dataset.name);
 });
 
 function selectedCountry() {

@@ -47,6 +47,27 @@ _COUNTRY_FLAGS = {
     "sweden": "🇸🇪",
 }
 
+# One accent color per country for the rendered CV PDF. Deliberately NOT
+# literal flag colors (red/gold, orange, etc. read as loud/unprofessional
+# on a CV and can look like political branding) — each is a refined,
+# print-safe dark hue that nods to the country's design/business culture
+# while staying ATS-neutral and readable: British racing green for the
+# UK, an emerald distinct from it for Ireland, a Delft-blue-inspired
+# petrol for the Netherlands, a cool Scandinavian blue for Sweden, and a
+# European wine/burgundy for Austria next to Germany's existing navy.
+_COUNTRY_ACCENT = {
+    "germany": "#1F4E79",
+    "austria": "#7A2E3D",
+    "uk": "#0B3D2E",
+    "ireland": "#0F5132",
+    "netherlands": "#0B5D63",
+    "sweden": "#1B4965",
+}
+_DEFAULT_ACCENT = "#1F4E79"
+
+def country_accent(slug: str) -> str:
+    return _COUNTRY_ACCENT.get(slug, _DEFAULT_ACCENT)
+
 def slugify_country(country: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", (country or "").strip().lower()).strip("_")
 
@@ -238,11 +259,62 @@ tailor_llm = llm.with_structured_output(TailoredCV)
 
 class AgentState(TypedDict):
     jd_text: str
+    country: str
     base_cv: Optional[str]
     base_cl: Optional[str]
     extracted_requirements: str
     optimized_cv: Optional[bytes]
     optimized_cl: Optional[str]
+
+# Modern, ATS-first CV norms that hold across every supported country's
+# tech/data job market today — no photo, no date of birth, no marital
+# status or nationality field. Germany/Austria's older Lebenslauf
+# tradition (photo + personal data) is fading fast for ATS-screened
+# roles and was never the norm in the UK/Ireland/Netherlands/Sweden, so
+# this single directive is safe and accurate for all of them rather
+# than assuming one country's convention applies everywhere.
+_CV_NORMS_DIRECTIVE = (
+    "Follow modern, ATS-first CV conventions for the {country} job market: "
+    "no photograph, no date of birth, no marital status, no nationality field, "
+    "and no other personal/demographic data beyond the contact block above — "
+    "these are not required or expected by employers there, regardless of any "
+    "older national tradition that may still exist."
+)
+
+# Light, current (as of this pipeline's 2026 build) per-market notes on top
+# of the universal norms above — length expectations and emphasis differ
+# enough by country that one blanket instruction undersells the nuance.
+# Keyed by the same canonical slug used everywhere else in this file, so a
+# newly added cv_<slug>.md without an entry here just gets the sane default
+# instead of failing.
+_COUNTRY_CV_NOTES = {
+    "germany": "Keep it concise and skills-first; the formal, multi-page Lebenslauf tradition is fading in tech/data hiring in favor of a tight, achievement-driven 1-2 page CV.",
+    "austria": "Keep it concise and skills-first; the formal, multi-page Lebenslauf tradition is fading in tech/data hiring in favor of a tight, achievement-driven 1-2 page CV.",
+    "uk": "Favor a tight 1-2 page CV with strong action verbs and quantified impact up front; UK recruiters skim fast.",
+    "ireland": "Favor a tight 1-2 page CV with strong action verbs and quantified impact up front, similar to UK norms.",
+    "netherlands": "Keep it direct and concise (max 2 pages), leading with concrete skills and results over self-promotional language.",
+    "sweden": "Keep it concise (1-2 pages) and understated; let quantified results speak rather than self-promotional language.",
+}
+_DEFAULT_CV_NOTE = "Follow concise, ATS-first, achievement-driven international CV conventions."
+
+def _country_cv_guidance(slug: str) -> str:
+    return _CV_NORMS_DIRECTIVE + " " + _COUNTRY_CV_NOTES.get(slug, _DEFAULT_CV_NOTE)
+
+# Same idea for the cover letter's tone — hiring culture affects how a
+# letter should read even when the underlying facts and structure (handled
+# elsewhere, see write_cover_letter) stay identical.
+_COUNTRY_CL_NOTES = {
+    "germany": "Keep the tone professional and warm, not stiff or overly formal.",
+    "austria": "Keep the tone professional and warm, not stiff or overly formal.",
+    "uk": "Keep the tone professional but personable and fairly concise, not overly formal.",
+    "ireland": "Keep the tone warm, personable, and conversational while staying professional.",
+    "netherlands": "Keep the tone direct, concise, and down-to-earth rather than self-promotional.",
+    "sweden": "Keep the tone modest and down-to-earth rather than self-promotional, matching Swedish workplace culture.",
+}
+_DEFAULT_CL_NOTE = "Keep the tone professional, warm, and genuinely human."
+
+def _country_cl_guidance(slug: str) -> str:
+    return _COUNTRY_CL_NOTES.get(slug, _DEFAULT_CL_NOTE)
 
 _EXTRACT_PROMPT = PromptTemplate.from_template(
     "Analyze the following job description carefully. "
@@ -301,8 +373,10 @@ def sanitize_filename_segment(text: str, fallback: str = "Company") -> str:
     cleaned = _FILENAME_UNSAFE_RE.sub("-", text).strip("-")
     return cleaned or fallback
 
-def _tailor_and_render_cv(requirements: str, jd_text: str, base_cv_md: str) -> bytes:
+def _tailor_and_render_cv(requirements: str, jd_text: str, base_cv_md: str, country: str = "germany") -> bytes:
     data = parse_base_cv(base_cv_md)
+    country_slug = canonical_country_slug(country)
+    country_name = country_display_name(country_slug)
 
     jobs_summary = "\n\n".join(
         f"Job {i+1}: {job['role']} at {job['company']}\nOriginal bullets:\n" +
@@ -317,7 +391,9 @@ def _tailor_and_render_cv(requirements: str, jd_text: str, base_cv_md: str) -> b
     # call after the first pays full price only for the short dynamic
     # tail, cutting input cost and latency on the bulk of the prompt.
     prompt = PromptTemplate.from_template(
-        "You are an expert career coach tailoring a German CV to a specific job description.\n\n"
+        "You are an expert career coach tailoring a CV for the {country} job market to a "
+        "specific job description.\n\n"
+        + _country_cv_guidance(country_slug) + "\n\n"
         "Your task:\n"
         "1. Write a new 2-5 word professional headline (the line directly under the "
         "candidate's name, e.g. 'Senior Data Scientist' or 'AI Engineer & MLOps Specialist'). "
@@ -352,6 +428,7 @@ def _tailor_and_render_cv(requirements: str, jd_text: str, base_cv_md: str) -> b
         "title": data["title"],
         "summary": data["summary"],
         "jobs_summary": jobs_summary,
+        "country": country_name,
     })
 
     data["title"] = tailored.title
@@ -360,11 +437,13 @@ def _tailor_and_render_cv(requirements: str, jd_text: str, base_cv_md: str) -> b
         if i < len(tailored.experience) and tailored.experience[i].bullets:
             job["bullets"] = tailored.experience[i].bullets
 
-    return render_cv_pdf(data)
+    return render_cv_pdf(data, country_slug)
 
 def reframe_cv(state: AgentState):
     """Tailors headline + profile + bullets to the JD and renders the final CV PDF."""
-    pdf_bytes = _tailor_and_render_cv(state["extracted_requirements"], state["jd_text"], state["base_cv"])
+    pdf_bytes = _tailor_and_render_cv(
+        state["extracted_requirements"], state["jd_text"], state["base_cv"], state["country"]
+    )
     return {"optimized_cv": pdf_bytes}
 
 _CODE_FENCE_RE = re.compile(r"^```[a-zA-Z]*\s*\n|\n?```\s*$", re.MULTILINE)
@@ -395,11 +474,12 @@ def _candidate_facts(base_cv_md: str) -> str:
 
 def write_cover_letter(state: AgentState):
     """Generates a tailored, human-sounding cover letter based on JD."""
+    country_slug = canonical_country_slug(state["country"])
     # Static instructions + the reference letter (identical every request,
     # same template file) first, JD-derived requirements last — same
     # prefix-caching rationale as the CV tailoring prompt above.
     prompt = PromptTemplate.from_template(
-        "You are writing a highly targeted cover letter for a German job posting. "
+        "You are writing a highly targeted cover letter for a job posting in {country}. "
         "Your goal is to produce a letter that feels genuinely written by a thoughtful, "
         "motivated candidate and not by an AI.\n\n"
         "Your task:\n"
@@ -434,10 +514,10 @@ def write_cover_letter(state: AgentState):
         "the ONLY facts about the candidate you may state (companies, roles, metrics, degrees, "
         "certifications, publications, and critically LANGUAGES) are the ones listed verbatim "
         "in 'Verified candidate facts' below. Do NOT infer, assume, or add anything not listed "
-        "there, even if it seems plausible or the JD is in German. In particular, the candidate's "
-        "languages are EXACTLY as listed in 'Verified candidate facts' - do NOT claim fluency, "
-        "proficiency, or any skill in German (or any other language) unless German literally "
-        "appears in that list. The reference letter is for TONE, STRUCTURE, and CSS only, not "
+        "there, even if it seems plausible or the JD is written in a different language. In "
+        "particular, the candidate's languages are EXACTLY as listed in 'Verified candidate "
+        "facts' - do NOT claim fluency, proficiency, or any skill in any language unless it "
+        "literally appears in that list. The reference letter is for TONE, STRUCTURE, and CSS only, not "
         "for fact-checking - if it contains any fact not present in 'Verified candidate facts' "
         "(it may, since it's from a different past application), do not reuse that fact.\n"
         "9. The company name, role title, and requisition number MUST be read from the full "
@@ -445,7 +525,8 @@ def write_cover_letter(state: AgentState):
         "company (e.g. Autodesk) is from a DIFFERENT, unrelated past application — reusing it "
         "verbatim for this job is a failure unless the JD below genuinely names that same company.\n"
         "10. Output ONLY the complete finalized HTML cover letter — no markdown code "
-        "fences (no ``` anywhere), no commentary before or after the HTML.\n\n"
+        "fences (no ``` anywhere), no commentary before or after the HTML.\n"
+        "11. LOCAL TONE: {country_note}\n\n"
         "Here is the reference cover letter (use this for structure, CSS, and contact "
         "details ONLY, never for facts):\n{base_cl}\n\n"
         "Verified candidate facts (the ONLY facts you may state about the candidate):\n"
@@ -459,7 +540,9 @@ def write_cover_letter(state: AgentState):
         "requirements": state["extracted_requirements"],
         "base_cl": state["base_cl"],
         "jd_text": state["jd_text"],
-        "candidate_facts": _candidate_facts(state["base_cv"])
+        "candidate_facts": _candidate_facts(state["base_cv"]),
+        "country": country_display_name(country_slug),
+        "country_note": _country_cl_guidance(country_slug),
     })
     # Leave {{TODAY}} as a literal placeholder here — the result gets
     # cached below, and substituting a real date into a cached response
@@ -487,12 +570,13 @@ _cl_workflow.add_edge("write_cl", END)
 _cl_app = _cl_workflow.compile()
 
 @lru_cache(maxsize=64)
-def _process_cv_cached(jd_text: str, base_cv: str) -> bytes:
+def _process_cv_cached(jd_text: str, base_cv: str, country: str) -> bytes:
     """Full CV pipeline is deterministic (temperature=0) for a given JD +
-    base CV, both LLM calls included. A repeat JD — a retry, or the same
-    posting run again later — returns instantly with zero LLM calls."""
+    base CV + country, both LLM calls included. A repeat JD — a retry, or the
+    same posting run again later — returns instantly with zero LLM calls."""
     result = _cv_app.invoke({
         "jd_text": jd_text,
+        "country": country,
         "base_cv": base_cv,
         "base_cl": None,
         "extracted_requirements": "",
@@ -501,16 +585,17 @@ def _process_cv_cached(jd_text: str, base_cv: str) -> bytes:
     })
     return result["optimized_cv"]
 
-def process_cv(jd_text: str, base_cv: str) -> bytes:
-    return _process_cv_cached(jd_text, base_cv)
+def process_cv(jd_text: str, base_cv: str, country: str = "germany") -> bytes:
+    return _process_cv_cached(jd_text, base_cv, country)
 
 @lru_cache(maxsize=64)
-def _process_cl_cached(jd_text: str, base_cl: str, base_cv: str) -> str:
+def _process_cl_cached(jd_text: str, base_cl: str, base_cv: str, country: str) -> str:
     """Same caching as the CV pipeline. Returns HTML with the {{TODAY}}
     placeholder still literal — date substitution happens after the cache
     lookup so cached results never carry a stale date."""
     result = _cl_app.invoke({
         "jd_text": jd_text,
+        "country": country,
         "base_cv": base_cv,
         "base_cl": base_cl,
         "extracted_requirements": "",
@@ -519,8 +604,8 @@ def _process_cl_cached(jd_text: str, base_cl: str, base_cv: str) -> str:
     })
     return result["optimized_cl"]
 
-def process_cover_letter(jd_text: str, base_cl: str, base_cv: str) -> str:
-    html = _process_cl_cached(jd_text, base_cl, base_cv)
+def process_cover_letter(jd_text: str, base_cl: str, base_cv: str, country: str = "germany") -> str:
+    html = _process_cl_cached(jd_text, base_cl, base_cv, country)
     today = datetime.now().strftime("%B %d, %Y")
     # Match {{TODAY}} as instructed, but also tolerate a stray single-brace
     # {TODAY} the model sometimes writes instead — a literal placeholder of
@@ -542,7 +627,9 @@ def _highlight_metrics(text: str) -> str:
 def _esc(text: str) -> str:
     return html_lib.escape(text or "")
 
-def render_cv_html(data: dict, scale: float = 1.0) -> str:
+def render_cv_html(data: dict, scale: float = 1.0, country: str = "germany") -> str:
+    accent = country_accent(canonical_country_slug(country))
+
     def pt(base: float) -> str:
         return f"{round(base * scale, 2)}pt"
 
@@ -609,12 +696,12 @@ def render_cv_html(data: dict, scale: float = 1.0) -> str:
     return f"""<html><head><style>
         @page {{ size: A4; margin: {px(10)} {px(28)}; }}
         body {{ font-family: Helvetica, Arial, sans-serif; color: #1a1a1a; font-size: {pt(9.5)}; }}
-        .name {{ font-size: {pt(20)}; font-weight: bold; color: #1F4E79; margin-bottom: 1px; }}
+        .name {{ font-size: {pt(20)}; font-weight: bold; color: {accent}; margin-bottom: 1px; }}
         .title {{ font-size: {pt(11)}; font-weight: bold; color: #444; margin-bottom: 2px; }}
         .contact {{ font-size: {pt(8)}; color: #555; margin-bottom: {px(5)}; }}
         .section-title {{
-            font-size: {pt(9.5)}; font-weight: bold; letter-spacing: 0.5px; color: #1F4E79;
-            border-bottom: 1.5px solid #1F4E79; padding-bottom: 1px;
+            font-size: {pt(9.5)}; font-weight: bold; letter-spacing: 0.5px; color: {accent};
+            border-bottom: 1.5px solid {accent}; padding-bottom: 1px;
             margin-top: {px(6)}; margin-bottom: {px(3)};
             -pdf-keep-with-next: true;
         }}
@@ -653,7 +740,7 @@ def render_cv_html(data: dict, scale: float = 1.0) -> str:
 def _pdf_page_count(pdf_bytes: bytes) -> int:
     return len(PdfReader(BytesIO(pdf_bytes)).pages)
 
-def render_cv_pdf(data: dict) -> bytes:
+def render_cv_pdf(data: dict, country: str = "germany") -> bytes:
     """Render the CV, auto-shrinking fonts/spacing until it fits on one
     page. The CV must always be exactly one page — tailored bullets can
     run longer than the reference text, so a fixed font size alone
@@ -661,7 +748,7 @@ def render_cv_pdf(data: dict) -> bytes:
     """
     last_pdf_bytes = None
     for scale in (1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65):
-        pdf_bytes = html_to_pdf_bytes(render_cv_html(data, scale=scale))
+        pdf_bytes = html_to_pdf_bytes(render_cv_html(data, scale=scale, country=country))
         last_pdf_bytes = pdf_bytes
         if _pdf_page_count(pdf_bytes) <= 1:
             return pdf_bytes

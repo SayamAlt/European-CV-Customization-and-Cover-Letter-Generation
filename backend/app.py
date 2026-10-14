@@ -122,7 +122,7 @@ def optimize_cv(request: JDRequest, _: str = Security(verify_key)):
     with open(base_cv_path, "r", encoding="utf-8") as f:
         base_cv = f.read()
 
-    pdf_bytes = process_cv(jd, base_cv)
+    pdf_bytes = process_cv(jd, base_cv, request.country)
     company = sanitize_filename_segment(extract_company_name(jd))
     return Response(
         content=pdf_bytes,
@@ -146,7 +146,7 @@ def generate_cover_letter(request: JDRequest, _: str = Security(verify_key)):
     with open(base_cv_path, "r", encoding="utf-8") as f:
         base_cv = f.read()
 
-    result = process_cover_letter(jd, base_cl, base_cv)
+    result = process_cover_letter(jd, base_cl, base_cv, request.country)
     pdf_bytes = html_to_pdf_bytes(result)
     company = sanitize_filename_segment(extract_company_name(jd))
     return Response(

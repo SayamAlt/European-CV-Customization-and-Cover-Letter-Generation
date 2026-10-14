@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>German CV Customizer</title>
+  <title>CV Customizer — Europe</title>
   <style>
     :root {
       --bg: #0c0c1e;
@@ -31,8 +31,11 @@
       background: var(--bg);
       color: var(--text-primary);
       font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
       overflow: hidden;
       position: relative;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
     }
 
     /* Ambient orbs in background */
@@ -156,6 +159,7 @@
       border-color: var(--border-hover);
       transform: translateY(-1px);
       background: var(--surface-hover);
+      box-shadow: 0 8px 20px rgba(0,0,0,0.25);
     }
     .card:hover:not(.disabled)::before { opacity: 0.05; }
     .card:active:not(.disabled) { transform: translateY(0px) scale(0.99); }
@@ -474,7 +478,7 @@
 
     <!-- Country Selector -->
     <div class="country-picker">
-      <label class="country-label" for="countrySelect">Target country</label>
+      <label class="country-label" for="countrySelect">🌍 Target country</label>
       <div class="country-select-wrap">
         <select id="countrySelect" disabled>
           <option value="">Loading countries...</option>
@@ -540,7 +544,7 @@
 
     <!-- Footer -->
     <div class="footer">
-      <div class="footer-text" id="footerText">v3.0</div>
+      <div class="footer-text">v3.0 · Tailored for Europe</div>
       <div class="powered-badge">Powered by <span>GPT-4o-mini</span></div>
     </div>
 
