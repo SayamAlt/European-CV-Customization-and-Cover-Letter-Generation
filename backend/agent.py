@@ -39,6 +39,7 @@ _COUNTRY_DISPLAY_NAMES = {
     "ireland": "Ireland",
     "austria": "Austria",
     "sweden": "Sweden",
+    "canada": "Canada",
 }
 _COUNTRY_FLAGS = {
     "germany": "🇩🇪",
@@ -47,6 +48,7 @@ _COUNTRY_FLAGS = {
     "ireland": "🇮🇪",
     "austria": "🇦🇹",
     "sweden": "🇸🇪",
+    "canada": "🇨🇦",
 }
 
 # One accent color per country for the rendered CV PDF. Deliberately NOT
@@ -55,8 +57,10 @@ _COUNTRY_FLAGS = {
 # print-safe dark hue that nods to the country's design/business culture
 # while staying ATS-neutral and readable: British racing green for the
 # UK, an emerald distinct from it for Ireland, a Delft-blue-inspired
-# petrol for the Netherlands, a cool Scandinavian blue for Sweden, and a
-# European wine/burgundy for Austria next to Germany's existing navy.
+# petrol for the Netherlands, a cool Scandinavian blue for Sweden, a
+# European wine/burgundy for Austria next to Germany's existing navy,
+# and a muted, desaturated maple red for Canada (a nod to the flag
+# without reading as loud or political on a CV).
 _COUNTRY_ACCENT = {
     "germany": "#1F4E79",
     "austria": "#7A2E3D",
@@ -64,6 +68,7 @@ _COUNTRY_ACCENT = {
     "ireland": "#0F5132",
     "netherlands": "#0B5D63",
     "sweden": "#1B4965",
+    "canada": "#9E1B32",
 }
 _DEFAULT_ACCENT = "#1F4E79"
 
@@ -298,6 +303,7 @@ _COUNTRY_CV_NOTES = {
     "ireland": "Favor a tight 1-2 page CV with strong action verbs and quantified impact up front, similar to UK norms.",
     "netherlands": "Keep it direct and concise (max 2 pages), leading with concrete skills and results over self-promotional language.",
     "sweden": "Keep it concise (1-2 pages) and understated; let quantified results speak rather than self-promotional language.",
+    "canada": "Follow Canadian resume conventions: reverse-chronological, achievement-driven, 1-2 pages, quantified bullet points, no personal pronouns; if work authorization status is already stated in the base CV, keep it, since Canadian employers value a candidate who can self-identify as not needing sponsorship.",
 }
 _DEFAULT_CV_NOTE = "Follow concise, ATS-first, achievement-driven international CV conventions."
 
@@ -314,6 +320,7 @@ _COUNTRY_CL_NOTES = {
     "ireland": "Keep the tone warm, personable, and conversational while staying professional.",
     "netherlands": "Keep the tone direct, concise, and down-to-earth rather than self-promotional.",
     "sweden": "Keep the tone modest and down-to-earth rather than self-promotional, matching Swedish workplace culture.",
+    "canada": "Keep the tone professional, friendly, and straightforward, similar to US norms but slightly warmer; briefly note existing Canadian work authorization if relevant so the employer can self-select.",
 }
 _DEFAULT_CL_NOTE = "Keep the tone professional, warm, and genuinely human."
 
