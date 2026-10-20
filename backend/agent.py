@@ -40,6 +40,8 @@ _COUNTRY_DISPLAY_NAMES = {
     "austria": "Austria",
     "sweden": "Sweden",
     "canada": "Canada",
+    "denmark": "Denmark",
+    "finland": "Finland",
 }
 _COUNTRY_FLAGS = {
     "germany": "🇩🇪",
@@ -49,6 +51,8 @@ _COUNTRY_FLAGS = {
     "austria": "🇦🇹",
     "sweden": "🇸🇪",
     "canada": "🇨🇦",
+    "denmark": "🇩🇰",
+    "finland": "🇫🇮",
 }
 
 # One accent color per country for the rendered CV PDF. Deliberately NOT
@@ -59,8 +63,10 @@ _COUNTRY_FLAGS = {
 # UK, an emerald distinct from it for Ireland, a Delft-blue-inspired
 # petrol for the Netherlands, a cool Scandinavian blue for Sweden, a
 # European wine/burgundy for Austria next to Germany's existing navy,
-# and a muted, desaturated maple red for Canada (a nod to the flag
-# without reading as loud or political on a CV).
+# a muted, desaturated maple red for Canada (a nod to the flag without
+# reading as loud or political on a CV), a warm muted terracotta for
+# Denmark, and a cool slate blue-grey for Finland (distinct from
+# Sweden's navy, nodding to Finnish design minimalism).
 _COUNTRY_ACCENT = {
     "germany": "#1F4E79",
     "austria": "#7A2E3D",
@@ -69,6 +75,8 @@ _COUNTRY_ACCENT = {
     "netherlands": "#0B5D63",
     "sweden": "#1B4965",
     "canada": "#9E1B32",
+    "denmark": "#B1543F",
+    "finland": "#4B5D67",
 }
 _DEFAULT_ACCENT = "#1F4E79"
 
@@ -304,6 +312,8 @@ _COUNTRY_CV_NOTES = {
     "netherlands": "Keep it direct and concise (max 2 pages), leading with concrete skills and results over self-promotional language.",
     "sweden": "Keep it concise (1-2 pages) and understated; let quantified results speak rather than self-promotional language.",
     "canada": "Follow Canadian resume conventions: reverse-chronological, achievement-driven, 1-2 pages, quantified bullet points, no personal pronouns; if work authorization status is already stated in the base CV, keep it, since Canadian employers value a candidate who can self-identify as not needing sponsorship.",
+    "denmark": "Keep it concise (1-2 pages) and direct, reflecting Denmark's flat, informal, non-hierarchical workplace culture; lead with concrete, quantified results over formal titles or self-promotion.",
+    "finland": "Keep it concise (1-2 pages), modest, and matter-of-fact; Finnish employers value understatement and directness, so let quantified results speak rather than self-promotional language.",
 }
 _DEFAULT_CV_NOTE = "Follow concise, ATS-first, achievement-driven international CV conventions."
 
@@ -321,6 +331,8 @@ _COUNTRY_CL_NOTES = {
     "netherlands": "Keep the tone direct, concise, and down-to-earth rather than self-promotional.",
     "sweden": "Keep the tone modest and down-to-earth rather than self-promotional, matching Swedish workplace culture.",
     "canada": "Keep the tone professional, friendly, and straightforward, similar to US norms but slightly warmer; briefly note existing Canadian work authorization if relevant so the employer can self-select.",
+    "denmark": "Keep the tone warm, informal, and direct, reflecting Denmark's flat, non-hierarchical workplace culture; avoid overly formal or self-promotional language.",
+    "finland": "Keep the tone modest, direct, and understated, reflecting Finnish workplace culture; avoid overt self-promotion or flattery.",
 }
 _DEFAULT_CL_NOTE = "Keep the tone professional, warm, and genuinely human."
 
