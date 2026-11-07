@@ -133,6 +133,12 @@ loadConfig().then(async (configured) => {
     setStatus('#dc2626', 'Not configured — click to open setup');
     statusDot.style.cursor = 'pointer';
     statusDot.addEventListener('click', () => chrome.runtime.openOptionsPage());
+    // Without this, the dropdown stays frozen on its static HTML
+    // placeholder ("Loading countries...") forever, which reads exactly
+    // like a stuck cold start instead of a missing-config state —
+    // make the two visually unmistakable.
+    countrySelect.innerHTML = '<option value="">Not configured — click status dot</option>';
+    countrySelect.disabled = true;
     return;
   }
 
