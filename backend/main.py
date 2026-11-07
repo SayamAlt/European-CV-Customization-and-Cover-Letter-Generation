@@ -1,4 +1,6 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from fastapi import FastAPI, HTTPException, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.api_key import APIKeyHeader
@@ -48,6 +50,22 @@ BASE_DIR = os.path.dirname(__file__)
 CV_DIR = os.path.join(BASE_DIR, "templates", "cv")
 CL_DIR = os.path.join(BASE_DIR, "templates", "cover letter")
 
+# Shared pool for running the (jd_text-only, fully independent) company-name
+# extraction concurrently with the CV/cover-letter pipeline instead of after
+# it — see optimize_cv/generate_cover_letter below. Sized generously since
+# each submitted task just blocks on one short LLM call, never CPU-bound.
+_executor = ThreadPoolExecutor(max_workers=16)
+
+# Template files (cv_<country>.md, cover_letter_template_<country>.html)
+# never change while this process is running — a real edit only takes
+# effect via a redeploy, which restarts the process and drops this cache
+# naturally. Caching their content removes a disk read from every single
+# request's critical path with zero risk of ever serving stale content.
+@lru_cache(maxsize=64)
+def _read_template(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
 class JDRequest(BaseModel):
     jd_text: str
     country: str = "germany"
@@ -96,11 +114,15 @@ def optimize_cv(request: JDRequest, _: str = Security(verify_key)):
         raise HTTPException(status_code=400, detail="Job Description too short.")
 
     base_cv_path = _resolve_base_cv_path(request.country)
-    with open(base_cv_path, "r", encoding="utf-8") as f:
-        base_cv = f.read()
+    base_cv = _read_template(base_cv_path)
 
+    # extract_company_name depends only on jd_text — fully independent of
+    # the CV tailoring pipeline below. Running it concurrently instead of
+    # after overlaps its LLM round trip with process_cv's, shaving a full
+    # sequential call off the critical path for every request.
+    company_future = _executor.submit(extract_company_name, jd)
     pdf_bytes = process_cv(jd, base_cv, request.country)
-    company = sanitize_filename_segment(extract_company_name(jd))
+    company = sanitize_filename_segment(company_future.result())
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -118,14 +140,14 @@ def generate_cover_letter(request: JDRequest, _: str = Security(verify_key)):
     if not os.path.exists(base_cl_path):
         raise HTTPException(status_code=500, detail="Cover letter template not found in container.")
 
-    with open(base_cl_path, "r", encoding="utf-8") as f:
-        base_cl = f.read()
-    with open(base_cv_path, "r", encoding="utf-8") as f:
-        base_cv = f.read()
+    base_cl = _read_template(base_cl_path)
+    base_cv = _read_template(base_cv_path)
 
+    # Same overlap trick as /optimize — company name only needs jd_text.
+    company_future = _executor.submit(extract_company_name, jd)
     result = process_cover_letter(jd, base_cl, base_cv, request.country)
     pdf_bytes = render_cover_letter_pdf(result)
-    company = sanitize_filename_segment(extract_company_name(jd))
+    company = sanitize_filename_segment(company_future.result())
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

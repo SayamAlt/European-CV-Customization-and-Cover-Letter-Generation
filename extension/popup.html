@@ -232,6 +232,58 @@
     }
     .progress-label span { font-weight: 600; color: var(--text-primary); }
 
+    /* ---- PROGRESS BAR ---- */
+    .progress-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .progress-bar-track {
+      flex: 1;
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.07);
+      overflow: hidden;
+      position: relative;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      position: relative;
+      overflow: hidden;
+      transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .progress-bar-fill-cv { background: linear-gradient(90deg, var(--cv-from), var(--cv-to)); box-shadow: 0 0 10px rgba(29,232,181,0.5); }
+    .progress-bar-fill-cl { background: linear-gradient(90deg, var(--cl-from), var(--cl-to)); box-shadow: 0 0 10px rgba(168,85,247,0.5); }
+    .progress-bar-fill::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent);
+      transform: translateX(-100%);
+      animation: barShimmer 1.4s ease-in-out infinite;
+    }
+    @keyframes barShimmer {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+    .progress-percent {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-primary);
+      min-width: 34px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .progress-eta {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin: -4px 0 12px 0;
+      font-variant-numeric: tabular-nums;
+    }
+
     .spinner {
       width: 14px; height: 14px;
       border: 2px solid rgba(255,255,255,0.1);
@@ -515,6 +567,13 @@
         <div class="spinner" id="progressSpinner"></div>
         <div>Processing <span id="progressTitle"></span>...</div>
       </div>
+      <div class="progress-bar-row">
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="progressBarFill"></div>
+        </div>
+        <div class="progress-percent" id="progressPercent">0%</div>
+      </div>
+      <div class="progress-eta" id="progressEta">Usually takes just a few seconds</div>
       <div class="steps" id="stepsContainer">
         <!-- Injected dynamically -->
       </div>

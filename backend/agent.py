@@ -3,6 +3,7 @@ import re
 import glob
 import base64
 import mimetypes
+import threading
 import html as html_lib
 from datetime import datetime
 from functools import lru_cache
@@ -339,6 +340,28 @@ _DEFAULT_CL_NOTE = "Keep the tone professional, warm, and genuinely human."
 def _country_cl_guidance(slug: str) -> str:
     return _COUNTRY_CL_NOTES.get(slug, _DEFAULT_CL_NOTE)
 
+# =====================================================================
+# Singleflight lock — now that the API layer deliberately fires the
+# company-name extraction concurrently with the main CV/CL pipeline
+# (see main.py/app.py), two requests racing on the SAME jd_text can
+# both miss the lru_cache before either result lands, each triggering
+# a redundant LLM call. A per-key lock makes every call after the first
+# for a given jd_text simply wait for the in-flight one's cached
+# result instead of duplicating the request — correctness and cost are
+# both preserved under concurrency, latency isn't, since this only
+# matters for clashing duplicate text.
+# =====================================================================
+_singleflight_locks: dict[str, threading.Lock] = {}
+_singleflight_guard = threading.Lock()
+
+def _singleflight(key: str):
+    with _singleflight_guard:
+        lock = _singleflight_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _singleflight_locks[key] = lock
+        return lock
+
 _EXTRACT_PROMPT = PromptTemplate.from_template(
     "Analyze the following job description carefully. "
     "Extract the core technical skills, soft skills, key responsibilities, "
@@ -357,7 +380,9 @@ def _extract_requirements_cached(jd_text: str) -> str:
 
 def extract_requirements(state: AgentState):
     """Analyzes JD and extracts core requirements."""
-    return {"extracted_requirements": _extract_requirements_cached(state["jd_text"])}
+    jd_text = state["jd_text"]
+    with _singleflight(f"requirements:{jd_text}"):
+        return {"extracted_requirements": _extract_requirements_cached(jd_text)}
 
 # =====================================================================
 # Company name extraction — lets API callers build a filename unique
@@ -382,7 +407,8 @@ def _extract_company_name_cached(jd_text: str) -> str:
     return _company_chain.invoke({"jd_text": jd_text}).content.strip()
 
 def extract_company_name(jd_text: str) -> str:
-    return _extract_company_name_cached(jd_text)
+    with _singleflight(f"company:{jd_text}"):
+        return _extract_company_name_cached(jd_text)
 
 _FILENAME_UNSAFE_RE = re.compile(r"[^A-Za-z0-9]+")
 

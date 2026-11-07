@@ -31,6 +31,9 @@ const errorText      = document.getElementById('errorText');
 const downloadLabel  = document.getElementById('downloadLabel');
 const statusDot      = document.getElementById('statusDot');
 const countrySelect  = document.getElementById('countrySelect');
+const progressBarFill= document.getElementById('progressBarFill');
+const progressPercent= document.getElementById('progressPercent');
+const progressEta     = document.getElementById('progressEta');
 
 let pendingContent   = null;
 let pendingFilename  = null;
@@ -223,6 +226,55 @@ function completeAllSteps(mode) {
 }
 
 // =====================================================================
+// Progress bar — asymptotic fill driven by actual elapsed time, not a
+// fixed-duration guess. It eases toward (but never quite reaches) a cap
+// so it keeps looking alive no matter how long the real request takes,
+// then snaps to 100% the instant the response actually comes back —
+// same "never lies about being done" principle real loaders use (Linear,
+// Stripe, Vercel), instead of a fake bar that reaches 100% and then
+// visibly stalls waiting for the network.
+// =====================================================================
+const PROGRESS_CAP_FRACTION = 0.92;
+const PROGRESS_TAU_MS = 2200;
+let progressRAF = null;
+let progressStartedAt = null;
+
+function setProgressBar(fraction, elapsedMs) {
+  const pct = Math.round(fraction * 100);
+  progressBarFill.style.width = `${pct}%`;
+  progressPercent.textContent = `${pct}%`;
+  if (elapsedMs != null) {
+    progressEta.textContent = `${(elapsedMs / 1000).toFixed(1)}s elapsed`;
+  }
+}
+
+function startProgressBar(mode) {
+  progressBarFill.className = `progress-bar-fill progress-bar-fill-${mode}`;
+  progressEta.textContent = 'Usually takes just a few seconds';
+  setProgressBar(0, null);
+  progressStartedAt = performance.now();
+  cancelAnimationFrame(progressRAF);
+  const tick = () => {
+    const elapsed = performance.now() - progressStartedAt;
+    const fraction = PROGRESS_CAP_FRACTION * (1 - Math.exp(-elapsed / PROGRESS_TAU_MS));
+    setProgressBar(fraction, elapsed);
+    progressRAF = requestAnimationFrame(tick);
+  };
+  progressRAF = requestAnimationFrame(tick);
+}
+
+function finishProgressBar() {
+  cancelAnimationFrame(progressRAF);
+  const elapsed = progressStartedAt ? performance.now() - progressStartedAt : null;
+  setProgressBar(1, elapsed);
+}
+
+function resetProgressBar() {
+  cancelAnimationFrame(progressRAF);
+  setProgressBar(0, null);
+}
+
+// =====================================================================
 // UI state helpers
 // =====================================================================
 function showProgress(mode) {
@@ -237,13 +289,18 @@ function showProgress(mode) {
 
   renderSteps(mode);
   progressPanel.classList.add('visible');
+  startProgressBar(mode);
 
-  // Animate steps over estimated 45s — we'll complete them forcibly on success
-  animateSteps(mode, 42000);
+  // Backend now overlaps its LLM calls (see agent.py), so a real request
+  // typically finishes in a few seconds — step pacing matches that, and
+  // completeAllSteps() forces them done immediately on actual success
+  // regardless of how long this estimate runs.
+  animateSteps(mode, 6000);
 }
 
 function showResult(mode, content, filename, mimeType) {
   completeAllSteps(mode);
+  finishProgressBar();
   pendingContent  = content;
   pendingFilename = filename;
   pendingMimeType = mimeType;
@@ -274,6 +331,7 @@ function showResult(mode, content, filename, mimeType) {
 
 function showError(msg) {
   clearTimeout(stepTimer);
+  resetProgressBar();
   progressPanel.classList.remove('visible');
   resultPanel.classList.remove('visible');
   cvCard.classList.remove('disabled');
