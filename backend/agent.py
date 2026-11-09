@@ -536,84 +536,125 @@ def _candidate_facts(base_cv_md: str) -> str:
             lines.append(f"  - {b}")
     return "\n".join(lines)
 
+# =====================================================================
+# Cover letter content — structured output + deterministic HTML assembly,
+# same pattern as the CV's TailoredCV/render_cv_html split above. This
+# used to be one LLM call asked to regenerate the ENTIRE HTML document
+# (header, contact-row, CSS, date placeholder — none of which can
+# legitimately change) on every single request, which wasted a large
+# share of generation time re-typing boilerplate and was the dominant
+# cost in the common case (no condense retry needed). Now the model only
+# writes the handful of fields that actually vary; the header,
+# contact-row, date placeholder, closing/signature, and all CSS are
+# copied byte-for-byte from the per-country template in
+# _assemble_cover_letter_html below — faster (far fewer output tokens)
+# AND more reliable (zero chance of the model drifting from the
+# reference's structure/CSS, since it never touches them at all).
+# =====================================================================
+class CoverLetterContent(BaseModel):
+    company: str = Field(description="The hiring company's name, read from the job description below, never the reference letter. Use 'the company' if the JD never states one.")
+    role_title: str = Field(description="The exact job title stated in the job description.")
+    team_or_department: Optional[str] = Field(default=None, description="Team or department name ONLY if the JD explicitly states one, otherwise omit/null.")
+    requisition: Optional[str] = Field(default=None, description="Requisition/job ID ONLY if the JD explicitly states one, otherwise omit/null.")
+    paragraphs: list[str] = Field(description="4 to 5 complete body paragraphs, each 3 to 4 full sentences, in reading order, with no salutation line before them. Wrap a key metric, number, or tool name in **double asterisks** where natural, matching the reference letter's use of bold emphasis, but don't overuse it.")
+
+cl_content_llm = llm.with_structured_output(CoverLetterContent)
+
+_CL_COMPANY_RE = re.compile(r'(<div class="company">)(.*?)(</div>)', re.DOTALL)
+_CL_ROLE_LINE_RE = re.compile(r'(<div class="role-line">)(.*?)(</div>)', re.DOTALL)
+_CL_RE_LINE_RE = re.compile(r'(<div class="re-line">)(.*?)(</div>)', re.DOTALL)
+_CL_BODY_TEXT_RE = re.compile(r'(<div class="body-text">)(.*?)(\n\s*</div>\s*\n\s*<!-- CLOSING)', re.DOTALL)
+_CL_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+
+def _render_cl_paragraph(paragraph: str) -> str:
+    """Escapes the model's plain-text paragraph first, THEN converts
+    **bold** markers to <strong> — so nothing the model writes can ever
+    inject real markup, only this literal emphasis syntax."""
+    escaped = html_lib.escape(paragraph.strip())
+    return _CL_BOLD_RE.sub(r"<strong>\1</strong>", escaped)
+
+def _assemble_cover_letter_html(base_cl_html: str, content: CoverLetterContent, country_name: str) -> str:
+    role_line = f"Hiring Team &mdash; {_esc(content.role_title)}, {_esc(country_name)}"
+    re_line = f"Re: {_esc(content.role_title)}"
+    if content.team_or_department:
+        re_line += f" &mdash; {_esc(content.team_or_department)}"
+    if content.requisition:
+        re_line += f" (Req. #{_esc(content.requisition)})"
+    body_html = "\n\n    ".join(
+        f"<p>\n      {_render_cl_paragraph(p)}\n    </p>" for p in content.paragraphs
+    )
+
+    html = base_cl_html
+    html = _CL_COMPANY_RE.sub(lambda m: m.group(1) + _esc(content.company) + m.group(3), html, count=1)
+    html = _CL_ROLE_LINE_RE.sub(lambda m: m.group(1) + role_line + m.group(3), html, count=1)
+    html = _CL_RE_LINE_RE.sub(lambda m: m.group(1) + re_line + m.group(3), html, count=1)
+    html = _CL_BODY_TEXT_RE.sub(lambda m: m.group(1) + "\n\n    " + body_html + "\n\n  " + m.group(3), html, count=1)
+    return html
+
 def write_cover_letter(state: AgentState):
-    """Generates a tailored, human-sounding cover letter based on JD."""
+    """Generates a tailored, human-sounding cover letter's CONTENT based
+    on the JD, then assembles it into the final HTML deterministically."""
     country_slug = canonical_country_slug(state["country"])
+    country_name = country_display_name(country_slug)
     # Static instructions + the reference letter (identical every request,
     # same template file) first, JD-derived requirements last — same
     # prefix-caching rationale as the CV tailoring prompt above.
     prompt = PromptTemplate.from_template(
-        "You are writing a highly targeted cover letter for a job posting in {country}. "
-        "Your goal is to produce a letter that feels genuinely written by a thoughtful, "
-        "motivated candidate and not by an AI.\n\n"
+        "You are writing the BODY of a highly targeted cover letter for a job posting in "
+        "{country}. Your goal is to produce content that feels genuinely written by a "
+        "thoughtful, motivated candidate and not by an AI.\n\n"
         "Your task:\n"
-        "1. Tailor the letter body completely to the job requirements given below.\n"
+        "1. Tailor the content completely to the job requirements given below.\n"
         "2. Write 4 to 5 well-developed paragraphs (not 2 to 3 short ones). Each paragraph "
         "should be 3 to 4 full sentences. The letter must read as substantial and complete, "
         "comfortably filling most of one page when rendered, with enough margin to reliably "
-        "fit on exactly ONE page - never let it run short and sparse, and never let it "
-        "overflow past one page.\n"
-        "3. Mirror the reference letter's HTML structure and CSS styling EXACTLY: same "
-        "divs/classes, same order of sections (header, date, recipient-block with company "
-        "and role-line, re-line, re-rule, body paragraphs, closing). There is NO "
-        "salutation line ('Dear Hiring Manager' etc.) — do not add one, the reference "
-        "has none and the body paragraphs start immediately after the re-rule.\n"
-        "4. In the date div, output the literal placeholder text {{TODAY}} verbatim and "
-        "nothing else — do NOT write an actual date or guess today's date, it will be "
-        "substituted automatically. Writing any date yourself (real or placeholder-like) "
-        "other than exactly {{TODAY}} is a failure.\n"
-        "5. Replace the company name, role title, requisition number (only if the JD "
-        "states one, otherwise omit the '(Req. #...)' part entirely), and team/department "
-        "(only if the JD states one, otherwise write 'Re: {{role title}}' with no dash/team) "
-        "to match this specific job.\n"
-        "6. Do NOT change the contact-row (phone, email, LinkedIn, portfolio, location) — "
-        "copy it from the reference exactly, unchanged.\n"
-        "7. STRICT LANGUAGE RULES:\n"
+        "fit on exactly ONE page - never let it run short and sparse, and never let it run "
+        "long enough to overflow past one page. There is NO salutation line ('Dear Hiring "
+        "Manager' etc.) - the paragraphs stand alone.\n"
+        "3. Read the company name, exact role title, requisition number (only if the JD "
+        "states one), and team/department (only if the JD states one) from the full "
+        "original job description below, never from the reference letter - its company "
+        "and role are from a DIFFERENT, unrelated past application.\n"
+        "4. STRICT LANGUAGE RULES:\n"
         "   - NEVER use em dashes or en dashes. Replace with a comma or rewrite the sentence.\n"
         "   - Use simple, everyday language only. No complex or overly formal words.\n"
         "   - Write like a real person who genuinely wants this specific job.\n"
         "   - Be concrete: reference multiple real achievements from the candidate facts below "
         "that map to this role, with specifics (numbers, tools, outcomes).\n"
         "   - Avoid filler phrases like 'I am excited to apply' or 'I believe I would be a great fit'.\n"
-        "8. ZERO-HALLUCINATION RULE, highest priority, overrides every other instruction: "
+        "5. ZERO-HALLUCINATION RULE, highest priority, overrides every other instruction: "
         "the ONLY facts about the candidate you may state (companies, roles, metrics, degrees, "
         "certifications, publications, and critically LANGUAGES) are the ones listed verbatim "
         "in 'Verified candidate facts' below. Do NOT infer, assume, or add anything not listed "
         "there, even if it seems plausible or the JD is written in a different language. In "
         "particular, the candidate's languages are EXACTLY as listed in 'Verified candidate "
         "facts' - do NOT claim fluency, proficiency, or any skill in any language unless it "
-        "literally appears in that list. The reference letter is for TONE, STRUCTURE, and CSS only, not "
-        "for fact-checking - if it contains any fact not present in 'Verified candidate facts' "
-        "(it may, since it's from a different past application), do not reuse that fact.\n"
-        "9. The company name, role title, and requisition number MUST be read from the full "
-        "original job description below, not from the reference letter. The reference letter's "
-        "company (e.g. Autodesk) is from a DIFFERENT, unrelated past application — reusing it "
-        "verbatim for this job is a failure unless the JD below genuinely names that same company.\n"
-        "10. Output ONLY the complete finalized HTML cover letter — no markdown code "
-        "fences (no ``` anywhere), no commentary before or after the HTML.\n"
-        "11. LOCAL TONE: {country_note}\n\n"
-        "Here is the reference cover letter (use this for structure, CSS, and contact "
-        "details ONLY, never for facts):\n{base_cl}\n\n"
+        "literally appears in that list. The reference letter is for TONE only, never facts - "
+        "if it contains any fact not present in 'Verified candidate facts' (it may, since it's "
+        "from a different past application), do not reuse that fact.\n"
+        "6. LOCAL TONE: {country_note}\n\n"
+        "Here is the reference cover letter, for TONE only (its HTML/CSS and company/role "
+        "are handled separately and are unrelated to this job):\n{base_cl}\n\n"
         "Verified candidate facts (the ONLY facts you may state about the candidate):\n"
         "{candidate_facts}\n\n"
         "Here are the core requirements of the job:\n{requirements}\n\n"
         "Here is the full original job description, to read the exact company name, role "
         "title, and requisition number (if any) from:\n{jd_text}"
     )
-    chain = prompt | llm
-    res = chain.invoke({
+    chain = prompt | cl_content_llm
+    content: CoverLetterContent = chain.invoke({
         "requirements": state["extracted_requirements"],
         "base_cl": state["base_cl"],
         "jd_text": state["jd_text"],
         "candidate_facts": _candidate_facts(state["base_cv"]),
-        "country": country_display_name(country_slug),
+        "country": country_name,
         "country_note": _country_cl_guidance(country_slug),
     })
-    # Leave {{TODAY}} as a literal placeholder here — the result gets
-    # cached below, and substituting a real date into a cached response
-    # would freeze that date for every future cache hit. The date is
-    # filled in fresh on every call, cached or not, in process_cover_letter.
-    return {"optimized_cl": _strip_code_fences(res.content)}
+    html = _assemble_cover_letter_html(state["base_cl"], content, country_name)
+    # {{TODAY}} is already baked into every template's date div verbatim —
+    # nothing to substitute here. The cached result (see process_cover_letter)
+    # gets today's actual date filled in fresh on every call, cached or not.
+    return {"optimized_cl": html}
 
 # Graphs are pure wiring with no per-request state — compiling them on
 # every call (as before) is wasted work. Build each one once at import
