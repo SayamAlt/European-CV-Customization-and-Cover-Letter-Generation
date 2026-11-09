@@ -135,13 +135,21 @@ def discover_countries(base_dir: str) -> list[dict]:
     return countries
 
 # timeout + bounded retries: don't hang a request forever on a flaky
-# upstream call, but tolerate one transient network blip.
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, timeout=30, max_retries=2)
+# upstream call, but tolerate one transient network blip. max_retries=1
+# (not 2) deliberately: each attempt can wait up to `timeout` seconds
+# before retrying, so 2 retries means a single slow-but-not-failing
+# response can silently stack into 3x30s = 90s for ONE logical call —
+# exactly the "stuck for a long time, not erroring, not progressing"
+# symptom the cover letter path (which can need two such calls back to
+# back — see render_cover_letter_pdf) was showing. One retry still
+# absorbs a genuine transient blip without letting worst-case latency
+# triple.
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, timeout=30, max_retries=1)
 
 # Requirement extraction only needs a short keyword/skill list, not prose.
 # Capping output tokens cuts cost and latency with no loss of the signal
 # the downstream tailoring step actually uses.
-extract_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, timeout=30, max_retries=2, max_tokens=300)
+extract_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, timeout=30, max_retries=1, max_tokens=300)
 
 def html_to_pdf_bytes(html: str) -> bytes:
     """Render generated HTML into PDF bytes.
