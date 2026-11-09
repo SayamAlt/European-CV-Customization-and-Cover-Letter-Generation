@@ -43,6 +43,7 @@ _COUNTRY_DISPLAY_NAMES = {
     "canada": "Canada",
     "denmark": "Denmark",
     "finland": "Finland",
+    "norway": "Norway",
 }
 _COUNTRY_FLAGS = {
     "germany": "🇩🇪",
@@ -54,6 +55,7 @@ _COUNTRY_FLAGS = {
     "canada": "🇨🇦",
     "denmark": "🇩🇰",
     "finland": "🇫🇮",
+    "norway": "🇳🇴",
 }
 
 # One accent color per country for the rendered CV PDF. Deliberately NOT
@@ -66,8 +68,10 @@ _COUNTRY_FLAGS = {
 # European wine/burgundy for Austria next to Germany's existing navy,
 # a muted, desaturated maple red for Canada (a nod to the flag without
 # reading as loud or political on a CV), a warm muted terracotta for
-# Denmark, and a cool slate blue-grey for Finland (distinct from
-# Sweden's navy, nodding to Finnish design minimalism).
+# Denmark, a cool slate blue-grey for Finland (distinct from
+# Sweden's navy, nodding to Finnish design minimalism), and a muted
+# fjord green for Norway, distinct from the UK/Ireland greens and
+# Netherlands petrol.
 _COUNTRY_ACCENT = {
     "germany": "#1F4E79",
     "austria": "#7A2E3D",
@@ -78,6 +82,7 @@ _COUNTRY_ACCENT = {
     "canada": "#9E1B32",
     "denmark": "#B1543F",
     "finland": "#4B5D67",
+    "norway": "#2E4B3F",
 }
 _DEFAULT_ACCENT = "#1F4E79"
 
@@ -315,6 +320,7 @@ _COUNTRY_CV_NOTES = {
     "canada": "Follow Canadian resume conventions: reverse-chronological, achievement-driven, 1-2 pages, quantified bullet points, no personal pronouns; if work authorization status is already stated in the base CV, keep it, since Canadian employers value a candidate who can self-identify as not needing sponsorship.",
     "denmark": "Keep it concise (1-2 pages) and direct, reflecting Denmark's flat, informal, non-hierarchical workplace culture; lead with concrete, quantified results over formal titles or self-promotion.",
     "finland": "Keep it concise (1-2 pages), modest, and matter-of-fact; Finnish employers value understatement and directness, so let quantified results speak rather than self-promotional language.",
+    "norway": "Keep it concise (1-2 pages), direct, and egalitarian in tone; Norwegian employers value flat hierarchy and understated competence over self-promotion, so let quantified results carry the weight.",
 }
 _DEFAULT_CV_NOTE = "Follow concise, ATS-first, achievement-driven international CV conventions."
 
@@ -334,6 +340,7 @@ _COUNTRY_CL_NOTES = {
     "canada": "Keep the tone professional, friendly, and straightforward, similar to US norms but slightly warmer; briefly note existing Canadian work authorization if relevant so the employer can self-select.",
     "denmark": "Keep the tone warm, informal, and direct, reflecting Denmark's flat, non-hierarchical workplace culture; avoid overly formal or self-promotional language.",
     "finland": "Keep the tone modest, direct, and understated, reflecting Finnish workplace culture; avoid overt self-promotion or flattery.",
+    "norway": "Keep the tone direct, modest, and egalitarian, reflecting Norway's flat, non-hierarchical workplace culture; avoid overt self-promotion or flattery.",
 }
 _DEFAULT_CL_NOTE = "Keep the tone professional, warm, and genuinely human."
 
@@ -533,10 +540,11 @@ def write_cover_letter(state: AgentState):
         "motivated candidate and not by an AI.\n\n"
         "Your task:\n"
         "1. Tailor the letter body completely to the job requirements given below.\n"
-        "2. Write 5 to 6 well-developed paragraphs (not 2 to 3 short ones). Each paragraph "
-        "should be 3 to 5 full sentences. The letter must read as substantial and complete, "
-        "filling close to a full page when rendered, while still fitting on exactly ONE page "
-        "- never let it run short and sparse, and never let it overflow past one page.\n"
+        "2. Write 4 to 5 well-developed paragraphs (not 2 to 3 short ones). Each paragraph "
+        "should be 3 to 4 full sentences. The letter must read as substantial and complete, "
+        "comfortably filling most of one page when rendered, with enough margin to reliably "
+        "fit on exactly ONE page - never let it run short and sparse, and never let it "
+        "overflow past one page.\n"
         "3. Mirror the reference letter's HTML structure and CSS styling EXACTLY: same "
         "divs/classes, same order of sections (header, date, recipient-block with company "
         "and role-line, re-line, re-rule, body paragraphs, closing). There is NO "
@@ -681,13 +689,58 @@ _CONDENSE_CL_PROMPT = PromptTemplate.from_template(
 )
 _condense_cl_chain = _CONDENSE_CL_PROMPT | llm
 
+# The prompt's "fill most of a page" instruction (see write_cover_letter)
+# means the first draft lands close to the one-page edge fairly often,
+# and previously ANY overflow — even by a line or two — fell straight
+# through to the condense LLM call above, which is a full network round
+# trip on the *same* model the letter was written with. That was the
+# actual latency source users were seeing (tens of seconds, not the
+# few-second target). A few points of CSS shrink — same font-scale idea
+# render_cv_pdf already uses for the CV — reclaims that margin for free,
+# CPU-only, with no visible quality loss at these small scales, so the
+# slow condense path only runs when content is genuinely too long, not
+# on every slightly-over-budget letter.
+_MECHANICAL_SHRINK_SCALES = (1.0, 0.94, 0.88)
+
+def _inject_shrink_css(html: str, scale: float) -> str:
+    """Appends a CSS override block (cascades after the LLM's own
+    <style>, same selectors) that proportionally shrinks font sizes,
+    line-heights, and spacing — never touches content, structure, or
+    class names, so it's safe to apply to whatever HTML the model wrote
+    as long as it followed the reference template's class names."""
+    css = f"""<style>
+      @page {{ margin: {0.45 * scale:.3f}in; }}
+      body {{ font-size: {11.5 * scale:.2f}px; line-height: {1.65 * scale:.3f}; }}
+      .header h1 {{ font-size: {26 * scale:.1f}px; margin-bottom: {6 * scale:.1f}px; }}
+      .header-gradient {{ margin-bottom: {10 * scale:.1f}px; }}
+      .letter-meta {{ margin-top: {16 * scale:.1f}px; margin-bottom: {20 * scale:.1f}px; }}
+      .body-text p {{ font-size: {11.5 * scale:.2f}px; line-height: {1.7 * scale:.3f}; margin-bottom: {14 * scale:.1f}px; }}
+      .closing {{ margin-top: {24 * scale:.1f}px; }}
+    </style>"""
+    if "</head>" in html:
+        return html.replace("</head>", css + "</head>", 1)
+    return css + html
+
+def _best_mechanical_fit(html: str) -> tuple[bytes, bool]:
+    """Tries progressively smaller (but still clearly readable) CSS
+    scales and returns the first that fits one page, or the smallest
+    attempt's PDF if none do — mirrors render_cv_pdf's early-exit at the
+    largest fitting scale."""
+    last_pdf = None
+    for scale in _MECHANICAL_SHRINK_SCALES:
+        pdf_bytes = html_to_pdf_bytes(_inject_shrink_css(html, scale))
+        last_pdf = pdf_bytes
+        if _pdf_page_count(pdf_bytes) <= 1:
+            return pdf_bytes, True
+    return last_pdf, False
+
 def render_cover_letter_pdf(html: str, max_attempts: int = 3) -> bytes:
     current_html = html
     last_pdf = None
     for attempt in range(max_attempts):
-        pdf_bytes = html_to_pdf_bytes(current_html)
+        pdf_bytes, fits = _best_mechanical_fit(current_html)
         last_pdf = pdf_bytes
-        if _pdf_page_count(pdf_bytes) <= 1:
+        if fits:
             return pdf_bytes
         if attempt < max_attempts - 1:
             current_html = _strip_code_fences(_condense_cl_chain.invoke({"html": current_html}).content)
